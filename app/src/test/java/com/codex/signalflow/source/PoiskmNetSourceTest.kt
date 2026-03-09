@@ -45,4 +45,24 @@ class PoiskmNetSourceTest {
         assertEquals("Test Artist", results.first().artist)
         assertEquals("https://poiskm.net/?do=getById&id=987&n=5", results.first().downloadUrl)
     }
+
+    @Test
+    fun prefersExplicitDownloadButtonWhenItExists() {
+        val html = """
+            <div id="song-555" data-songid="555">
+                <div class="title_wrap">
+                    <a class="artist-name" href="/artist/test-artist">Test Artist</a>
+                    <span class="title-name">Button Song</span>
+                    <span class="play" data-number="9"></span>
+                    <a class="download" href="/?do=getById&id=555&amp;n=9">Скачать</a>
+                </div>
+            </div>
+        """.trimIndent()
+
+        val source = PoiskmNetSource()
+        val results = source.parseSearchHtml(html, "https://poiskm.net/show/test-artist/button-song")
+
+        assertEquals(1, results.size)
+        assertEquals("https://poiskm.net/?do=getById&id=555&n=9", results.first().downloadUrl)
+    }
 }

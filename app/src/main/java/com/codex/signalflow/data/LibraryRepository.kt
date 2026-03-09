@@ -10,6 +10,7 @@ import com.codex.signalflow.source.DownloadBlueprint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -105,7 +106,7 @@ class LibraryRepository(
             sourceUri = blueprint.url,
             fallbackTitle = blueprint.title,
             fallbackArtist = blueprint.artist,
-        ) ?: error("Файл загружен, но не распознан как аудио.")
+        ) ?: error("Файл скачан, но Android не распознал его как аудио.")
 
         mutate { current ->
             if (current.tracks.any { it.sourceUri == blueprint.url }) {
@@ -202,7 +203,7 @@ class LibraryRepository(
         }
     }
 
-    private fun downloadAudioToDeviceStorage(blueprint: DownloadBlueprint): String {
+    private suspend fun downloadAudioToDeviceStorage(blueprint: DownloadBlueprint): String {
         val extension = guessAudioExtension(
             suggestedFilename = blueprint.suggestedFilename,
             contentType = null,
@@ -218,7 +219,7 @@ class LibraryRepository(
             ?: error("Не удалось создать файл в памяти устройства.")
 
         return try {
-            val connection = openDownloadConnection(blueprint)
+            val connection = openDownloadConnectionWithRetry(blueprint)
             try {
                 connection.inputStream.use { input ->
                     resolver.openOutputStream(targetUri)?.use { output ->
@@ -236,50 +237,66 @@ class LibraryRepository(
         }
     }
 
-    private fun openDownloadConnection(blueprint: DownloadBlueprint): HttpURLConnection {
+    private suspend fun openDownloadConnectionWithRetry(blueprint: DownloadBlueprint): HttpURLConnection {
+        val delaysMs = listOf(0L, 1_500L, 3_000L, 5_000L)
+        var lastError: Throwable? = null
+
+        for ((index, delayMs) in delaysMs.withIndex()) {
+            if (delayMs > 0) {
+                delay(delayMs)
+            }
+            try {
+                return openDownloadConnectionAttempt(blueprint)
+            } catch (error: Throwable) {
+                lastError = error
+                if (index == delaysMs.lastIndex) {
+                    throw error
+                }
+            }
+        }
+
+        throw lastError ?: error("Не удалось скачать трек.")
+    }
+
+    private fun openDownloadConnectionAttempt(blueprint: DownloadBlueprint): HttpURLConnection {
         var currentUrl = blueprint.url
         var currentReferer = blueprint.refererUrl
         val cookies = linkedMapOf<String, String>()
 
-        repeat(6) {
-            val connection = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                instanceFollowRedirects = false
-                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; YaNeoDex) AppleWebKit/537.36 Chrome/123.0 Mobile Safari/537.36")
-                setRequestProperty("Accept", "audio/*,application/octet-stream,text/html,application/json;q=0.9,*/*;q=0.8")
-                setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
-                setRequestProperty("Connection", "keep-alive")
-                currentReferer?.let { setRequestProperty("Referer", it) }
-                if (cookies.isNotEmpty()) {
-                    setRequestProperty("Cookie", cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
-                }
-                connect()
-            }
-
+        repeat(8) {
+            val connection = createConnection(
+                url = currentUrl,
+                referer = currentReferer,
+                cookies = cookies,
+            )
             captureResponseCookies(connection, cookies)
+
             when (val responseCode = connection.responseCode) {
                 in 200..299 -> {
                     val contentType = connection.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
                     val contentDisposition = connection.getHeaderField("Content-Disposition").orEmpty().lowercase()
-                    val looksLikeAudio = contentType.startsWith("audio/") ||
-                        contentType == "application/octet-stream" ||
-                        contentDisposition.contains("filename=")
+                    val finalUrl = connection.url?.toString().orEmpty().ifBlank { currentUrl }
+                    val looksDownloadable = looksLikeDownloadResponse(
+                        url = finalUrl,
+                        contentType = contentType,
+                        contentDisposition = contentDisposition,
+                    )
 
-                    if (looksLikeAudio) {
+                    if (looksDownloadable) {
                         return connection
                     }
 
                     val bodyPreview = readBodyPreview(connection.inputStream)
-                    val extractedUrl = extractMediaUrl(bodyPreview, currentUrl)
+                    val extractedUrl = extractMediaUrl(bodyPreview, finalUrl)
                     connection.disconnect()
 
-                    if (!extractedUrl.isNullOrBlank() && extractedUrl != currentUrl) {
-                        currentReferer = currentUrl
+                    if (!extractedUrl.isNullOrBlank() && extractedUrl != finalUrl) {
+                        currentReferer = finalUrl
                         currentUrl = extractedUrl
                     } else {
                         val readableType = contentType.ifBlank { "неизвестный ответ" }
-                        error("Сервер вернул $readableType вместо аудиофайла.")
+                        val suffix = bodyPreview.takeIf { it.isNotBlank() }?.let { ": ${it.take(140)}" }.orEmpty()
+                        error("Сервер вернул $readableType вместо аудиофайла$suffix")
                     }
                 }
 
@@ -308,6 +325,48 @@ class LibraryRepository(
         }
 
         error("Слишком много перенаправлений при скачивании.")
+    }
+
+    private fun createConnection(
+        url: String,
+        referer: String?,
+        cookies: Map<String, String>,
+    ): HttpURLConnection {
+        return (URL(url).openConnection() as HttpURLConnection).apply {
+            connectTimeout = 20_000
+            readTimeout = 45_000
+            instanceFollowRedirects = false
+            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13; YaNeoDex) AppleWebKit/537.36 Chrome/123.0 Mobile Safari/537.36")
+            setRequestProperty("Accept", "audio/*,application/octet-stream,text/plain,text/html,application/json;q=0.9,*/*;q=0.8")
+            setRequestProperty("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
+            setRequestProperty("Connection", "keep-alive")
+            setRequestProperty("Cache-Control", "no-cache")
+            setRequestProperty("Pragma", "no-cache")
+            referer?.let { setRequestProperty("Referer", it) }
+            if (cookies.isNotEmpty()) {
+                setRequestProperty("Cookie", cookies.entries.joinToString("; ") { "${it.key}=${it.value}" })
+            }
+            connect()
+        }
+    }
+
+    private fun looksLikeDownloadResponse(
+        url: String,
+        contentType: String,
+        contentDisposition: String,
+    ): Boolean {
+        if (contentDisposition.contains("filename=")) return true
+        if (contentType.startsWith("audio/")) return true
+        if (contentType == "application/octet-stream" || contentType == "application/download" || contentType == "binary/octet-stream") {
+            return true
+        }
+        val loweredUrl = url.lowercase()
+        return loweredUrl.contains(".mp3") ||
+            loweredUrl.contains(".m4a") ||
+            loweredUrl.contains(".aac") ||
+            loweredUrl.contains(".ogg") ||
+            loweredUrl.contains(".wav") ||
+            loweredUrl.contains(".flac")
     }
 
     private fun captureResponseCookies(
@@ -345,11 +404,12 @@ class LibraryRepository(
             .replace("&amp;", "&")
 
         val patterns = listOf(
-            Regex("""https?://[^\"'\\s]+?\\.(mp3|m4a|aac|ogg|wav|flac)(\\?[^\"'\\s]*)?""", RegexOption.IGNORE_CASE),
-            Regex("""[\"']((?:https?:)?//[^\"'\\s]+?\\.(?:mp3|m4a|aac|ogg|wav|flac)(?:\\?[^\"'\\s]*)?)[\"']""", RegexOption.IGNORE_CASE),
+            Regex("""https?://[^\"'\s]+?\.(mp3|m4a|aac|ogg|wav|flac)(\?[^\"'\s]*)?""", RegexOption.IGNORE_CASE),
+            Regex("""[\"']((?:https?:)?//[^\"'\s]+?\.(?:mp3|m4a|aac|ogg|wav|flac)(?:\?[^\"'\s]*)?)[\"']""", RegexOption.IGNORE_CASE),
             Regex("""\"url\"\s*:\s*\"([^\"]+)\"""", RegexOption.IGNORE_CASE),
             Regex("""file\s*[:=]\s*[\"']([^\"']+)[\"']""", RegexOption.IGNORE_CASE),
-            Regex("""href\s*=\s*[\"']([^\"']+\\.(?:mp3|m4a|aac|ogg|wav|flac)[^\"']*)[\"']""", RegexOption.IGNORE_CASE),
+            Regex("""href\s*=\s*[\"']([^\"']+\.(?:mp3|m4a|aac|ogg|wav|flac)[^\"']*)[\"']""", RegexOption.IGNORE_CASE),
+            Regex("""(?:do=getById[^\"'\s<>]+)""", RegexOption.IGNORE_CASE),
         )
 
         patterns.forEach { pattern ->
@@ -362,10 +422,14 @@ class LibraryRepository(
     }
 
     private fun resolveUrl(baseUrl: String, candidate: String): String {
-        return if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
-            candidate
-        } else {
-            URL(URL(baseUrl), candidate).toString()
+        val normalized = candidate.trim().replace("&amp;", "&")
+        return when {
+            normalized.startsWith("http://") || normalized.startsWith("https://") -> normalized
+            normalized.startsWith("//") -> "https:$normalized"
+            normalized.startsWith("/") || normalized.startsWith("?") || normalized.startsWith("do=") -> {
+                URL(URL(baseUrl), normalized).toString()
+            }
+            else -> URL(URL(baseUrl), normalized).toString()
         }
     }
 

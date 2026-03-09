@@ -6,6 +6,7 @@ import org.jsoup.Jsoup
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 import java.net.URLEncoder
+import java.net.URL
 import java.nio.charset.StandardCharsets
 
 data class SourceDescriptor(
@@ -138,7 +139,7 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
         id = "poiskm",
         name = "Poiskm.net",
         status = "Активен",
-        description = "Поиск и разбор карточек треков с несколькими стратегиями URL и fallback-селекторами.",
+        description = "Поиск и разбор карточек треков с отдельной кнопкой скачивания, fallback-селекторами и повторными стратегиями поиска.",
         isEnabled = true,
     ),
 ) {
@@ -172,9 +173,9 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
                 title = listing.title,
                 artist = listing.artist,
                 detailUrl = listing.detailUrl,
-                downloadUrl = listing.songId?.takeIf { listing.number != null }?.let { songId ->
-                    buildDownloadUrl(songId, listing.number!!)
-                },
+                downloadUrl = listing.directDownloadUrl ?: listing.songId
+                    ?.takeIf { listing.number != null }
+                    ?.let { songId -> buildDownloadUrl(songId, listing.number!!) },
             )
         }
     }
@@ -183,13 +184,13 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
         track: RemoteTrackCandidate,
         document: Document,
     ): DownloadBlueprint {
-        val resolvedUrl = track.downloadUrl ?: parseTrackCards(document)
-            .firstOrNull { candidate -> candidate.matches(track) }
-            ?.let { candidate ->
-                val songId = candidate.songId
-                val number = candidate.number
-                if (songId != null && number != null) buildDownloadUrl(songId, number) else null
-            }
+        val pageBaseUrl = document.location().ifBlank { document.baseUri() }.ifBlank { track.detailUrl }
+        val matchedListing = parseTrackCards(document).firstOrNull { candidate -> candidate.matches(track) }
+        val resolvedUrl = track.downloadUrl
+            ?: matchedListing?.directDownloadUrl
+            ?: extractDirectDownloadUrl(document.body(), document.body(), pageBaseUrl)
+            ?: matchedListing?.songId?.takeIf { matchedListing.number != null }
+                ?.let { songId -> buildDownloadUrl(songId, matchedListing.number!!) }
             ?: error("Ссылка на загрузку не найдена для ${track.artist} - ${track.title}")
 
         return DownloadBlueprint(
@@ -254,6 +255,7 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
                 container.absoluteHref("a[href*=/show/]"),
                 baseUrl,
             ).orEmpty()
+            val directDownloadUrl = extractDirectDownloadUrl(item, container, baseUrl)
 
             val listing = PoiskmListing(
                 title = title,
@@ -261,6 +263,7 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
                 detailUrl = detailUrl,
                 songId = songId,
                 number = number,
+                directDownloadUrl = directDownloadUrl,
             )
             listings.putIfAbsent(listing.uniqueKey(), listing)
         }
@@ -301,6 +304,102 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
 
         val fallbackArtist = parseArtistTitlePair(container.text()).first
         return firstNotBlank(artistLink, fallbackArtist).orEmpty()
+    }
+
+    private fun extractDirectDownloadUrl(item: Element, container: Element, baseUrl: String): String? {
+        val selectorCandidates = listOf(
+            "a[href*='do=getById']",
+            "a[href*='.mp3']",
+            "a[href*='.m4a']",
+            "a[href*='/download/']",
+            "a.download",
+            "a[class*='download']",
+            "a[title*='Скачать']",
+            "a[aria-label*='Скачать']",
+            "a[download]",
+            "button[data-url]",
+            "button[data-file]",
+            "button[data-download]",
+            "[data-url*='getById']",
+            "[data-url*='.mp3']",
+            "[data-file*='.mp3']",
+        )
+
+        selectorCandidates.forEach { selector ->
+            val direct = listOf(item, container).firstNotNullOfOrNull { element ->
+                element.selectFirst(selector)?.let { candidate ->
+                    normalizeUrlCandidate(
+                        value = firstNotBlank(
+                            candidate.absUrl("href"),
+                            candidate.attr("href"),
+                            candidate.attr("data-url"),
+                            candidate.attr("data-download"),
+                            candidate.attr("data-file"),
+                            candidate.attr("download"),
+                        ),
+                        baseUrl = baseUrl,
+                    )
+                }
+            }
+            if (!direct.isNullOrBlank()) return direct
+        }
+
+        val attributeCandidates = listOf(
+            item.outerHtml(),
+            container.outerHtml(),
+            item.attr("onclick"),
+            container.attr("onclick"),
+        )
+
+        val regexCandidates = listOf(
+            Regex("""https?://[^\"'\s<>]+?(?:\.mp3|\.m4a|\.aac|\.ogg|\.wav|\.flac)(?:\?[^\"'\s<>]*)?""", RegexOption.IGNORE_CASE),
+            Regex("""(?:href|src|data-url|data-file|data-download)=[\"']([^\"']+)[\"']""", RegexOption.IGNORE_CASE),
+            Regex("""(?:do=getById[^\"'\s<>]+)""", RegexOption.IGNORE_CASE),
+            Regex("""(?:https?:)?//[^\"'\s<>]+?/(?:download|uploads?)/[^\"'\s<>]+""", RegexOption.IGNORE_CASE),
+        )
+
+        attributeCandidates.forEach { raw ->
+            regexCandidates.forEach { regex ->
+                val match = regex.find(raw) ?: return@forEach
+                val candidate = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: match.value
+                val normalized = normalizeUrlCandidate(candidate, baseUrl)
+                if (!normalized.isNullOrBlank() && looksLikeDownloadUrl(normalized)) {
+                    return normalized
+                }
+            }
+        }
+
+        return null
+    }
+
+    private fun normalizeUrlCandidate(value: String?, baseUrl: String): String? {
+        val trimmed = value?.trim().orEmpty()
+            .removePrefix("javascript:")
+            .trim('"', '\'', ' ')
+            .replace("\\/", "/")
+            .replace("&amp;", "&")
+        if (trimmed.isBlank()) return null
+        return when {
+            trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
+            trimmed.startsWith("//") -> "https:$trimmed"
+            trimmed.startsWith("/") || trimmed.startsWith("?") || trimmed.startsWith("do=") -> {
+                URL(URL(baseUrl.ifBlank { "https://poiskm.net/" }), trimmed).toString()
+            }
+            else -> URL(URL(baseUrl.ifBlank { "https://poiskm.net/" }), trimmed).toString()
+        }
+    }
+
+    private fun looksLikeDownloadUrl(url: String): Boolean {
+        val lowered = url.lowercase()
+        return lowered.contains("do=getbyid") ||
+            lowered.contains("download") ||
+            lowered.contains("/dl/") ||
+            lowered.contains(".mp3") ||
+            lowered.contains(".m4a") ||
+            lowered.contains(".aac") ||
+            lowered.contains(".ogg") ||
+            lowered.contains(".wav") ||
+            lowered.contains(".flac")
     }
 
     private fun parseArtistTitlePair(rawText: String): Pair<String, String> {
@@ -345,7 +444,7 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
     }
 
     private fun extractAttr(element: Element, name: String): String {
-        val regex = Regex("""$name\\s*=\\s*[\"']?([A-Za-z0-9_-]+)""")
+        val regex = Regex("""$name\\s*=\\s*[\"']?([A-Za-z0-9_\-:/.?=&%]+)""")
         return regex.find(element.outerHtml())?.groupValues?.getOrNull(1).orEmpty()
     }
 
@@ -369,9 +468,10 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
         val detailUrl: String,
         val songId: String?,
         val number: String?,
+        val directDownloadUrl: String?,
     ) {
         fun uniqueKey(): String {
-            return "${artist.lowercase()}|${title.lowercase()}|${songId.orEmpty()}|${number.orEmpty()}"
+            return "${artist.lowercase()}|${title.lowercase()}|${directDownloadUrl.orEmpty()}|${songId.orEmpty()}|${number.orEmpty()}"
         }
     }
 }
@@ -458,4 +558,3 @@ private fun baseRequest(url: String, referer: String? = null) = Jsoup.connect(ur
     .header("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
     .timeout(15_000)
     .followRedirects(true)
-
