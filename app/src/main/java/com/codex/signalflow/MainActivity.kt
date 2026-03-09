@@ -1,6 +1,8 @@
-﻿package com.codex.signalflow
+package com.codex.signalflow
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -8,8 +10,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.core.content.ContextCompat
 import com.codex.signalflow.ui.SignalFlowApp
 import com.codex.signalflow.ui.theme.SignalFlowTheme
 
@@ -24,24 +28,35 @@ class MainActivity : ComponentActivity() {
             SignalFlowTheme {
                 val uiState by viewModel.uiState.collectAsState()
                 val playerState by viewModel.playerState.collectAsState()
+                val visualizerState by viewModel.visualizerState.collectAsState()
                 val snackbarMessage by viewModel.snackbarMessage.collectAsState()
-                val picker = rememberLauncherForActivityResult(
-                    contract = ActivityResultContracts.OpenMultipleDocuments(),
-                ) { uris ->
+                val hasVisualizerPermission = ContextCompat.checkSelfPermission(
+                    this,
+                    Manifest.permission.RECORD_AUDIO,
+                ) == PackageManager.PERMISSION_GRANTED
+                val recordAudioPermission = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission(),
+                ) { granted ->
+                    viewModel.setVisualizerPermissionGranted(granted)
+                }
+                val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
                     uris.forEach { uri ->
                         runCatching {
-                            contentResolver.takePersistableUriPermission(
-                                uri,
-                                Intent.FLAG_GRANT_READ_URI_PERMISSION,
-                            )
+                            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                         }
                     }
                     viewModel.importTracks(uris)
                 }
 
+                LaunchedEffect(hasVisualizerPermission) {
+                    viewModel.setVisualizerPermissionGranted(hasVisualizerPermission)
+                }
+
                 SignalFlowApp(
                     uiState = uiState,
                     playerState = playerState,
+                    visualizerState = visualizerState,
+                    visualizerPermissionGranted = hasVisualizerPermission,
                     snackbarMessage = snackbarMessage,
                     onImportTracks = { picker.launch(arrayOf("audio/*")) },
                     onDismissSnackbar = viewModel::clearSnackbar,
@@ -58,7 +73,12 @@ class MainActivity : ComponentActivity() {
                     onPlayNext = viewModel::playNext,
                     onPlayPrevious = viewModel::playPrevious,
                     onToggleShuffle = viewModel::toggleShuffle,
-                    onSearchSources = viewModel::searchSources,
+                    onSeekTo = viewModel::seekTo,
+                    onExpandedPlayerVisibilityChanged = viewModel::setVisualizerActive,
+                    onRequestVisualizerPermission = {
+                        recordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
+                    },
+                    onSearchSources = { query -> viewModel.searchSources(query) },
                     onPlayPlaylistTrack = viewModel::playTrackFromSelectedPlaylist,
                     onDownloadRemoteTrack = viewModel::downloadRemoteTrack,
                 )
@@ -68,8 +88,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
-        if (isFinishing) {
-            viewModel.release()
-        }
+        if (isFinishing) viewModel.release()
     }
 }

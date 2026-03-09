@@ -6,9 +6,16 @@ import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import com.codex.signalflow.data.TrackRecord
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlin.random.Random
 
 data class PlayerUiState(
     val queueLabel: String = "Медиатека",
@@ -17,58 +24,78 @@ data class PlayerUiState(
     val isShuffleEnabled: Boolean = false,
     val queueSize: Int = 0,
     val currentIndex: Int = 0,
+    val currentPositionMs: Long = 0L,
+    val durationMs: Long = 0L,
+    val progressFraction: Float = 0f,
+    val hasPrevious: Boolean = false,
+    val hasNext: Boolean = false,
+    val canSeek: Boolean = false,
+    val audioSessionId: Int = 0,
 )
 
 class PlaybackManager(
     context: Context,
 ) {
     private val player = ExoPlayer.Builder(context).build()
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _playerState = MutableStateFlow(PlayerUiState())
     val playerState: StateFlow<PlayerUiState> = _playerState.asStateFlow()
-    private var currentQueue: List<TrackRecord> = emptyList()
+    private val audioVisualizer = AudioVisualizerController()
+    private var baseQueue: List<TrackRecord> = emptyList()
+    private var playbackQueue: List<TrackRecord> = emptyList()
     private var currentQueueLabel: String = "Медиатека"
+    private var shuffleEnabled: Boolean = false
+    private var visualizerActive: Boolean = false
+    private var visualizerPermissionGranted: Boolean = false
+
+    val visualizerState: StateFlow<VisualizerUiState> = audioVisualizer.state
 
     init {
-        player.addListener(
-            object : Player.Listener {
-                override fun onEvents(player: Player, events: Player.Events) {
-                    updateState()
+        player.addListener(object : Player.Listener {
+            override fun onEvents(player: Player, events: Player.Events) {
+                if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
+                    player.playbackState == Player.STATE_ENDED &&
+                    shuffleEnabled &&
+                    baseQueue.isNotEmpty()
+                ) {
+                    rebuildPlaybackQueue(
+                        currentTrackId = playbackQueue.lastOrNull()?.id,
+                        currentPositionMs = 0L,
+                        playWhenReady = false,
+                    )
                 }
-            },
-        )
+                updateState()
+            }
+        })
+        scope.launch {
+            while (true) {
+                updateState()
+                delay(500)
+            }
+        }
     }
 
-    fun playQueue(
-        label: String,
-        tracks: List<TrackRecord>,
-        startTrackId: String,
-        shuffle: Boolean = false,
-    ) {
+    fun playQueue(label: String, tracks: List<TrackRecord>, startTrackId: String, shuffle: Boolean = false) {
         if (tracks.isEmpty()) return
-        currentQueue = tracks
+        baseQueue = tracks
         currentQueueLabel = label
-        val startIndex = tracks.indexOfFirst { it.id == startTrackId }.coerceAtLeast(0)
-        val items = tracks.map { track ->
-            MediaItem.Builder()
-                .setMediaId(track.id)
-                .setUri(track.uri)
-                .setMediaMetadata(
-                    MediaMetadata.Builder()
-                        .setTitle(track.title)
-                        .setArtist(track.artist)
-                        .build(),
-                )
-                .build()
-        }
-        player.setMediaItems(items, startIndex, 0L)
-        player.prepare()
-        player.shuffleModeEnabled = shuffle
-        player.playWhenReady = true
+        shuffleEnabled = shuffle
+        rebuildPlaybackQueue(
+            currentTrackId = startTrackId,
+            currentPositionMs = 0L,
+            playWhenReady = true,
+        )
         updateState()
     }
 
     fun togglePlayPause() {
-        if (player.isPlaying) {
+        if (player.playbackState == Player.STATE_ENDED && playbackQueue.isNotEmpty()) {
+            rebuildPlaybackQueue(
+                currentTrackId = if (shuffleEnabled) null else playbackQueue.firstOrNull()?.id,
+                currentPositionMs = 0L,
+                playWhenReady = true,
+            )
+        } else if (player.isPlaying) {
             player.pause()
         } else {
             player.play()
@@ -76,34 +103,117 @@ class PlaybackManager(
         updateState()
     }
 
-    fun playNext() {
-        player.seekToNextMediaItem()
-        updateState()
-    }
-
-    fun playPrevious() {
-        player.seekToPreviousMediaItem()
-        updateState()
-    }
-
+    fun playNext() { player.seekToNextMediaItem(); updateState() }
+    fun playPrevious() { player.seekToPreviousMediaItem(); updateState() }
     fun toggleShuffle() {
-        player.shuffleModeEnabled = !player.shuffleModeEnabled
+        if (baseQueue.isEmpty()) return
+        val activeTrackId = player.currentMediaItem?.mediaId ?: playbackQueue.getOrNull(player.currentMediaItemIndex)?.id
+        val activePositionMs = player.currentPosition.coerceAtLeast(0L)
+        val shouldResume = player.isPlaying || player.playWhenReady
+        shuffleEnabled = !shuffleEnabled
+        rebuildPlaybackQueue(
+            currentTrackId = activeTrackId,
+            currentPositionMs = activePositionMs,
+            playWhenReady = shouldResume,
+        )
+        updateState()
+    }
+    fun seekTo(positionMs: Long) { player.seekTo(positionMs.coerceAtLeast(0L)); updateState() }
+    fun setVisualizerActive(active: Boolean) {
+        visualizerActive = active
+        updateState()
+    }
+
+    fun setVisualizerPermissionGranted(granted: Boolean) {
+        visualizerPermissionGranted = granted
         updateState()
     }
 
     fun release() {
+        scope.cancel()
+        audioVisualizer.release()
         player.release()
     }
 
     private fun updateState() {
         val currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+        val duration = player.duration.takeIf { it > 0 } ?: playbackQueue.getOrNull(currentIndex)?.durationMs ?: 0L
+        val position = player.currentPosition.coerceAtLeast(0L)
+        val progressFraction = if (duration > 0L) {
+            (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
+        } else {
+            0f
+        }
         _playerState.value = PlayerUiState(
             queueLabel = currentQueueLabel,
-            currentTrack = currentQueue.getOrNull(currentIndex),
+            currentTrack = playbackQueue.getOrNull(currentIndex),
             isPlaying = player.isPlaying,
-            isShuffleEnabled = player.shuffleModeEnabled,
-            queueSize = currentQueue.size,
+            isShuffleEnabled = shuffleEnabled,
+            queueSize = playbackQueue.size,
             currentIndex = currentIndex,
+            currentPositionMs = position,
+            durationMs = duration,
+            progressFraction = progressFraction,
+            hasPrevious = currentIndex > 0,
+            hasNext = currentIndex in 0 until (playbackQueue.lastIndex),
+            canSeek = duration > 0L,
+            audioSessionId = player.audioSessionId,
+        )
+        audioVisualizer.update(
+            audioSessionId = player.audioSessionId,
+            isPlaying = player.isPlaying,
+            isActive = visualizerActive,
+            permissionGranted = visualizerPermissionGranted,
+            progressFraction = progressFraction,
         )
     }
+
+    private fun applyQueue(
+        queue: List<TrackRecord>,
+        startIndex: Int,
+        startPositionMs: Long,
+        playWhenReady: Boolean,
+    ) {
+        val items = queue.map { track ->
+            MediaItem.Builder()
+                .setMediaId(track.id)
+                .setUri(track.uri)
+                .setMediaMetadata(MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).build())
+                .build()
+        }
+        player.setMediaItems(items, startIndex.coerceAtLeast(0), startPositionMs.coerceAtLeast(0L))
+        player.prepare()
+        player.shuffleModeEnabled = false
+        player.playWhenReady = playWhenReady
+    }
+
+    private fun rebuildPlaybackQueue(
+        currentTrackId: String?,
+        currentPositionMs: Long,
+        playWhenReady: Boolean,
+    ) {
+        if (baseQueue.isEmpty()) return
+        playbackQueue = buildPlaybackQueue(baseQueue, currentTrackId, shuffleEnabled)
+        val fallbackTrackId = playbackQueue.firstOrNull()?.id
+        val startIndex = playbackQueue.indexOfFirst { it.id == (currentTrackId ?: fallbackTrackId) }.coerceAtLeast(0)
+        applyQueue(
+            queue = playbackQueue,
+            startIndex = startIndex,
+            startPositionMs = currentPositionMs,
+            playWhenReady = playWhenReady,
+        )
+    }
+}
+
+internal fun buildPlaybackQueue(
+    tracks: List<TrackRecord>,
+    currentTrackId: String?,
+    shuffleEnabled: Boolean,
+    random: Random = Random.Default,
+): List<TrackRecord> {
+    if (tracks.isEmpty()) return emptyList()
+    if (!shuffleEnabled) return tracks
+    val pinnedTrack = tracks.firstOrNull { it.id == currentTrackId } ?: tracks.random(random)
+    val remainder = tracks.filterNot { it.id == pinnedTrack?.id }.shuffled(random)
+    return listOfNotNull(pinnedTrack) + remainder
 }

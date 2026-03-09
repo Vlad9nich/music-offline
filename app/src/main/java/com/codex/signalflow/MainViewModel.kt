@@ -2,6 +2,7 @@
 
 import android.app.Application
 import android.net.Uri
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codex.signalflow.data.LibraryRepository
@@ -9,6 +10,7 @@ import com.codex.signalflow.data.PlaylistRecord
 import com.codex.signalflow.data.TrackRecord
 import com.codex.signalflow.player.PlaybackManager
 import com.codex.signalflow.player.PlayerUiState
+import com.codex.signalflow.player.VisualizerUiState
 import com.codex.signalflow.source.MusicSourceCatalog
 import com.codex.signalflow.source.RemoteTrackCandidate
 import com.codex.signalflow.source.SourceDescriptor
@@ -31,7 +33,7 @@ data class MainUiState(
     val sourceResults: List<RemoteTrackCandidate> = emptyList(),
     val downloadingTrackKeys: Set<String> = emptySet(),
     val sourceDescriptors: List<SourceDescriptor> = emptyList(),
-    val sourceStatus: String = "Источник poiskm.net активен.",
+    val sourceStatus: String = "Источник Ligaudio активен.",
 )
 
 class MainViewModel(
@@ -45,11 +47,12 @@ class MainViewModel(
     private val sourceQuery = MutableStateFlow("")
     private val sourceResults = MutableStateFlow<List<RemoteTrackCandidate>>(emptyList())
     private val downloadingTrackKeys = MutableStateFlow<Set<String>>(emptySet())
-    private val sourceStatus = MutableStateFlow("Источник poiskm.net активен.")
+    private val sourceStatus = MutableStateFlow("Источник Ligaudio активен.")
     private val snackbar = MutableStateFlow<String?>(null)
 
     val snackbarMessage: StateFlow<String?> = snackbar
     val playerState: StateFlow<PlayerUiState> = playbackManager.playerState
+    val visualizerState: StateFlow<VisualizerUiState> = playbackManager.visualizerState
 
     private val librarySelection = combine(repository.snapshot, selectedPlaylistId) { snapshot, playlistId ->
         val activePlaylist = snapshot.playlists.firstOrNull { it.id == playlistId }
@@ -57,13 +60,7 @@ class MainViewModel(
         snapshot to activePlaylist
     }
 
-    private val baseUiState = combine(
-        librarySelection,
-        libraryQuery,
-        sourceQuery,
-        sourceResults,
-        sourceStatus,
-    ) { selection, query, remoteQuery, results, sourceMessage ->
+    private val baseUiState = combine(librarySelection, libraryQuery, sourceQuery, sourceResults, sourceStatus) { selection, query, remoteQuery, results, sourceMessage ->
         val snapshot = selection.first
         val activePlaylist = selection.second
         val normalizedQuery = query.trim()
@@ -74,9 +71,8 @@ class MainViewModel(
                     it.title.contains(normalizedQuery, ignoreCase = true) ||
                     it.artist.contains(normalizedQuery, ignoreCase = true)
             }
-        val selectedTracks = activePlaylist?.trackIds.orEmpty().mapNotNull { trackId ->
-            snapshot.tracks.firstOrNull { it.id == trackId }
-        }.sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() })
+        val selectedTracks = activePlaylist?.trackIds.orEmpty().mapNotNull { trackId -> snapshot.tracks.firstOrNull { it.id == trackId } }
+            .sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() })
 
         MainUiState(
             tracks = snapshot.tracks.sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() }),
@@ -95,11 +91,7 @@ class MainViewModel(
 
     val uiState: StateFlow<MainUiState> = combine(baseUiState, downloadingTrackKeys) { state, downloadingKeys ->
         state.copy(downloadingTrackKeys = downloadingKeys)
-    }.stateIn(
-        scope = viewModelScope,
-        started = SharingStarted.WhileSubscribed(5_000),
-        initialValue = MainUiState(sourceDescriptors = sourceCatalog.descriptors),
-    )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState(sourceDescriptors = sourceCatalog.descriptors))
 
     init {
         viewModelScope.launch {
@@ -112,28 +104,16 @@ class MainViewModel(
         }
     }
 
-    fun setLibraryQuery(value: String) {
-        libraryQuery.value = value
-    }
-
-    fun setSourceQuery(value: String) {
-        sourceQuery.value = value
-    }
-
-    fun clearSnackbar() {
-        snackbar.value = null
-    }
+    fun setLibraryQuery(value: String) { libraryQuery.value = value }
+    fun setSourceQuery(value: String) { sourceQuery.value = value }
+    fun clearSnackbar() { snackbar.value = null }
 
     fun importTracks(uris: List<Uri>) {
         if (uris.isEmpty()) return
         viewModelScope.launch {
             val importedTracks = repository.importTracks(uris)
             val selectedPlaylist = selectedPlaylistId.value
-            if (selectedPlaylist != null) {
-                importedTracks.forEach { track ->
-                    repository.addTrackToPlaylist(track.id, selectedPlaylist)
-                }
-            }
+            if (selectedPlaylist != null) importedTracks.forEach { track -> repository.addTrackToPlaylist(track.id, selectedPlaylist) }
             snackbar.value = when {
                 importedTracks.isEmpty() -> "Новые треки не были добавлены."
                 selectedPlaylist != null -> "Импортировано ${importedTracks.size} треков и добавлено в текущий плейлист."
@@ -146,17 +126,11 @@ class MainViewModel(
         viewModelScope.launch {
             val updated = repository.createPlaylist(name)
             selectedPlaylistId.value = updated.playlists.lastOrNull()?.id
-            snackbar.value = if (name.trim().isBlank()) {
-                "Название плейлиста пустое."
-            } else {
-                "Плейлист создан."
-            }
+            snackbar.value = if (name.trim().isBlank()) "Название плейлиста пустое." else "Плейлист создан."
         }
     }
 
-    fun selectPlaylist(playlistId: String) {
-        selectedPlaylistId.value = playlistId
-    }
+    fun selectPlaylist(playlistId: String) { selectedPlaylistId.value = playlistId }
 
     fun addTrackToSelectedPlaylist(trackId: String) {
         val playlistId = selectedPlaylistId.value
@@ -185,12 +159,7 @@ class MainViewModel(
             snackbar.value = "Сначала импортируйте локальные аудиофайлы."
             return
         }
-        playbackManager.playQueue(
-            label = "Локальная медиатека",
-            tracks = queue,
-            startTrackId = trackId,
-            shuffle = false,
-        )
+        playbackManager.playQueue("Локальная медиатека", queue, trackId, shuffle = false)
     }
 
     fun playTrackFromSelectedPlaylist(trackId: String) {
@@ -199,12 +168,7 @@ class MainViewModel(
             snackbar.value = "Плейлист пуст."
             return
         }
-        playbackManager.playQueue(
-            label = state.selectedPlaylistName,
-            tracks = state.selectedPlaylistTracks,
-            startTrackId = trackId,
-            shuffle = false,
-        )
+        playbackManager.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, trackId, shuffle = false)
     }
 
     fun playSelectedPlaylist() {
@@ -214,95 +178,85 @@ class MainViewModel(
             snackbar.value = "Плейлист пуст."
             return
         }
-        playbackManager.playQueue(
-            label = state.selectedPlaylistName,
-            tracks = state.selectedPlaylistTracks,
-            startTrackId = firstTrack.id,
-            shuffle = false,
-        )
+        playbackManager.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, firstTrack.id, shuffle = false)
     }
 
     fun shuffleSelectedPlaylist() {
         val state = uiState.value
-        val firstTrack = state.selectedPlaylistTracks.firstOrNull()
-        if (firstTrack == null) {
+        val randomTrack = state.selectedPlaylistTracks.shuffled().firstOrNull()
+        if (randomTrack == null) {
             snackbar.value = "Плейлист пуст."
             return
         }
-        playbackManager.playQueue(
-            label = state.selectedPlaylistName,
-            tracks = state.selectedPlaylistTracks,
-            startTrackId = firstTrack.id,
-            shuffle = true,
-        )
+        playbackManager.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, randomTrack.id, shuffle = true)
     }
 
     fun togglePlayPause() = playbackManager.togglePlayPause()
-
     fun playNext() = playbackManager.playNext()
-
     fun playPrevious() = playbackManager.playPrevious()
-
     fun toggleShuffle() = playbackManager.toggleShuffle()
+    fun seekTo(positionMs: Long) = playbackManager.seekTo(positionMs)
+    fun setVisualizerActive(active: Boolean) = playbackManager.setVisualizerActive(active)
+    fun setVisualizerPermissionGranted(granted: Boolean) = playbackManager.setVisualizerPermissionGranted(granted)
 
-    fun searchSources() {
+    fun searchSources(rawQuery: String) {
         viewModelScope.launch {
             if (!sourceCatalog.hasEnabledSources()) {
                 sourceResults.value = emptyList()
-                sourceStatus.value = "Каркас парсера готов, но активный источник не подключен."
-                snackbar.value = "Шаблон парсера готов."
+                sourceStatus.value = "Источник не подключен."
+                Log.w(TAG, "searchSources aborted: no enabled sources")
                 return@launch
             }
-
-            val query = sourceQuery.value.trim()
+            val query = rawQuery.trim()
+            sourceQuery.value = rawQuery
+            Log.d(TAG, "searchSources start query=$query")
             if (query.isBlank()) {
                 sourceResults.value = emptyList()
-                sourceStatus.value = "Введите запрос для поиска по внешнему источнику."
+                sourceStatus.value = "Введите запрос для поиска."
+                Log.d(TAG, "searchSources aborted: blank query")
                 return@launch
             }
-
-            val results = sourceCatalog.searchAll(query)
-            sourceResults.value = results
-            sourceStatus.value = "Найдено совпадений: ${results.size}."
+            try {
+                val results = sourceCatalog.searchAll(query)
+                sourceResults.value = results
+                sourceStatus.value = if (results.isEmpty()) "Ничего не найдено." else "Найдено: ${results.size}."
+                Log.d(TAG, "searchSources done query=$query results=${results.size} status=${sourceStatus.value}")
+            } catch (error: Throwable) {
+                sourceResults.value = emptyList()
+                sourceStatus.value = LibraryRepository.toUserFacingMessage(error, "Ошибка поиска источника.")
+                snackbar.value = sourceStatus.value
+                Log.e(TAG, "searchSources failed query=$query reason=${LibraryRepository.describeThrowable(error)}", error)
+            }
         }
     }
 
     fun downloadRemoteTrack(track: RemoteTrackCandidate) {
         val key = track.stableKey()
-        if (key in downloadingTrackKeys.value) {
-            return
-        }
-
+        if (key in downloadingTrackKeys.value) return
         viewModelScope.launch {
             downloadingTrackKeys.value = downloadingTrackKeys.value + key
+            Log.d(TAG, "downloadRemoteTrack start key=$key detail=${track.detailUrl} direct=${track.downloadUrl}")
             try {
                 val blueprint = sourceCatalog.resolve(track)
                 val importedTrack = repository.importDownloadedTrack(blueprint)
                 val selectedPlaylist = selectedPlaylistId.value
-                if (selectedPlaylist != null) {
-                    repository.addTrackToPlaylist(importedTrack.id, selectedPlaylist)
-                }
-                snackbar.value = if (selectedPlaylist != null) {
-                    "Трек скачан на устройство и добавлен в текущий плейлист."
-                } else {
-                    "Трек скачан на устройство в Музыка/YaNeoDex."
-                }
+                if (selectedPlaylist != null) repository.addTrackToPlaylist(importedTrack.id, selectedPlaylist)
+                snackbar.value = if (selectedPlaylist != null) "Трек скачан и добавлен в текущий плейлист." else "Трек скачан в Музыка/YaNeoDex."
             } catch (error: Throwable) {
-                val reason = error.message?.trim().orEmpty().ifBlank { "Не удалось скачать трек." }
-                snackbar.value = reason
+                snackbar.value = LibraryRepository.toUserFacingMessage(error, "Не удалось скачать трек.")
+                Log.e(TAG, "downloadRemoteTrack failed key=$key reason=${LibraryRepository.describeThrowable(error)}", error)
             } finally {
                 downloadingTrackKeys.value = downloadingTrackKeys.value - key
             }
         }
     }
 
-    fun release() {
-        playbackManager.release()
-    }
+    fun release() { playbackManager.release() }
 
-    private fun RemoteTrackCandidate.stableKey(): String {
-        return "$sourceId|$title|$artist|${downloadUrl ?: detailUrl}"
+    private fun RemoteTrackCandidate.stableKey(): String = "$sourceId|$title|$artist|${downloadUrl ?: detailUrl}"
+
+    companion object {
+        private const val TAG = "YaNeoDexVm"
     }
 }
-
 

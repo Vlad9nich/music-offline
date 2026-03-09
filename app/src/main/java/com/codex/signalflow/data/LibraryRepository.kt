@@ -5,6 +5,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import com.codex.signalflow.source.DownloadBlueprint
 import kotlinx.coroutines.CoroutineScope
@@ -17,9 +18,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.io.InputStream
+import java.io.PushbackInputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.UUID
@@ -43,7 +46,7 @@ class LibraryRepository(
         }
     }
 
-    suspend fun importTracks(uris: List<Uri>): List<TrackRecord> {
+    suspend fun importTracks(uris: List<Uri>): List<TrackRecord> = withContext(Dispatchers.IO) {
         val existingBySource = snapshot.value.tracks.associateBy { it.sourceUri }
         val resolved = mutableListOf<TrackRecord>()
         val created = mutableListOf<TrackRecord>()
@@ -90,33 +93,42 @@ class LibraryRepository(
             }
         }
 
-        return resolved
+        resolved
     }
 
-    suspend fun importDownloadedTrack(blueprint: DownloadBlueprint): TrackRecord {
+    suspend fun importDownloadedTrack(blueprint: DownloadBlueprint): TrackRecord = withContext(Dispatchers.IO) {
+        logDebug(
+            stage = "import",
+            message = "start source=${blueprint.url} title=${blueprint.title} artist=${blueprint.artist}",
+        )
+
         val existing = snapshot.value.tracks.firstOrNull { it.sourceUri == blueprint.url }
         if (existing != null) {
-            return existing
+            logDebug(stage = "import", message = "existing track reused id=${existing.id} uri=${existing.uri}")
+            return@withContext existing
         }
 
-        val persistedUri = downloadAudioToDeviceStorage(blueprint)
-        val track = AudioMetadataReader.read(
-            context = context,
-            playbackUri = persistedUri,
-            sourceUri = blueprint.url,
-            fallbackTitle = blueprint.title,
-            fallbackArtist = blueprint.artist,
-        ) ?: error("Файл скачан, но Android не распознал его как аудио.")
+        val stored = downloadToDevice(blueprint)
+        val track = registerDownloadedTrack(
+            blueprint = blueprint,
+            stored = stored,
+        )
 
-        mutate { current ->
-            if (current.tracks.any { it.sourceUri == blueprint.url }) {
+        val updated = mutate { current ->
+            val duplicate = current.tracks.firstOrNull { it.sourceUri == blueprint.url }
+            if (duplicate != null) {
                 current
             } else {
                 current.copy(tracks = current.tracks + track)
             }
         }
 
-        return track
+        val finalTrack = updated.tracks.firstOrNull { it.sourceUri == blueprint.url } ?: track
+        logDebug(
+            stage = "library",
+            message = "registered track id=${finalTrack.id} uri=${finalTrack.uri} source=${finalTrack.sourceUri} librarySize=${updated.tracks.size}",
+        )
+        finalTrack
     }
 
     suspend fun createPlaylist(name: String): LibrarySnapshot = mutate { current ->
@@ -169,6 +181,7 @@ class LibraryRepository(
         storageFile.parentFile?.mkdirs()
         storageFile.writeText(json.encodeToString(LibrarySnapshot.serializer(), updated))
         _snapshot.value = updated
+        logDebug(stage = "library", message = "snapshot persisted path=${storageFile.absolutePath} tracks=${updated.tracks.size} playlists=${updated.playlists.size}")
         updated
     }
 
@@ -193,6 +206,7 @@ class LibraryRepository(
             resolver.openInputStream(sourceUri)?.use { input ->
                 resolver.openOutputStream(targetUri)?.use { output ->
                     input.copyTo(output)
+                    output.flush()
                 } ?: error("Не удалось открыть поток записи")
             } ?: error("Не удалось открыть поток чтения")
             finalizeMediaStoreAudio(targetUri)
@@ -203,41 +217,115 @@ class LibraryRepository(
         }
     }
 
-    private suspend fun downloadAudioToDeviceStorage(blueprint: DownloadBlueprint): String {
-        val extension = guessAudioExtension(
+    private suspend fun registerDownloadedTrack(
+        blueprint: DownloadBlueprint,
+        stored: StoredDownload,
+    ): TrackRecord {
+        logDebug(
+            stage = "register",
+            message = "start uri=${stored.persistedUri} finalUrl=${stored.finalUrl} bytes=${stored.bytesWritten} contentType=${stored.contentType}",
+        )
+
+        val metadataTrack = runCatching {
+            AudioMetadataReader.read(
+                context = context,
+                playbackUri = stored.persistedUri,
+                sourceUri = blueprint.url,
+                fallbackTitle = blueprint.title,
+                fallbackArtist = blueprint.artist,
+            )
+        }.onFailure { error ->
+            logError(stage = "register", message = "metadata reader threw for uri=${stored.persistedUri}", error = error)
+        }.getOrNull()
+
+        val track = metadataTrack ?: buildFallbackTrackRecord(
+            playbackUri = stored.persistedUri,
+            sourceUri = blueprint.url,
+            title = blueprint.title,
+            artist = blueprint.artist,
+        )
+
+        logDebug(
+            stage = "register",
+            message = "completed trackId=${track.id} title=${track.title} artist=${track.artist} duration=${track.durationMs} usedFallback=${metadataTrack == null}",
+        )
+        return track
+    }
+
+    private suspend fun downloadToDevice(blueprint: DownloadBlueprint): StoredDownload {
+        val guessedExtension = guessAudioExtension(
             suggestedFilename = blueprint.suggestedFilename,
             contentType = null,
         )
-        val mimeType = guessMimeType(extension.removePrefix("."))
+        val initialMimeType = guessMimeType(guessedExtension.removePrefix("."))
         val displayName = buildDisplayName(
             title = blueprint.title,
             artist = blueprint.artist,
-            extension = extension.removePrefix("."),
+            extension = guessedExtension.removePrefix("."),
         )
         val resolver = context.contentResolver
-        val targetUri = createMediaStoreAudioUri(displayName = displayName, mimeType = mimeType)
+        val targetUri = createMediaStoreAudioUri(displayName = displayName, mimeType = initialMimeType)
             ?: error("Не удалось создать файл в памяти устройства.")
 
-        return try {
-            val connection = openDownloadConnectionWithRetry(blueprint)
+        logDebug(
+            stage = "download",
+            message = "start target=$targetUri displayName=$displayName mime=$initialMimeType source=${blueprint.url} referer=${blueprint.refererUrl}",
+        )
+
+        var bytesWritten = 0L
+        var published = false
+        var finalUrl = blueprint.url
+        var finalContentType = initialMimeType
+
+        try {
+            val session = openDownloadSessionWithRetry(blueprint)
+            finalUrl = session.finalUrl
+            finalContentType = session.contentType.ifBlank { initialMimeType }
+
             try {
-                connection.inputStream.use { input ->
-                    resolver.openOutputStream(targetUri)?.use { output ->
-                        input.copyTo(output)
-                    } ?: error("Не удалось открыть поток записи")
-                }
+                resolver.openOutputStream(targetUri)?.use { output ->
+                    session.stream.use { input ->
+                        bytesWritten = input.copyTo(output)
+                        output.flush()
+                    }
+                } ?: error("Не удалось открыть поток записи")
             } finally {
-                connection.disconnect()
+                runCatching { session.stream.close() }
+                session.connection.disconnect()
             }
+
+            logDebug(
+                stage = "download",
+                message = "written target=$targetUri bytes=$bytesWritten finalUrl=$finalUrl contentType=$finalContentType",
+            )
+
             finalizeMediaStoreAudio(targetUri)
-            targetUri.toString()
+            published = true
+            logDebug(stage = "download", message = "published target=$targetUri bytes=$bytesWritten")
+
+            return StoredDownload(
+                persistedUri = targetUri.toString(),
+                finalUrl = finalUrl,
+                contentType = finalContentType,
+                bytesWritten = bytesWritten,
+            )
         } catch (error: Throwable) {
-            resolver.delete(targetUri, null, null)
-            throw error
+            logError(
+                stage = "download",
+                message = "failed target=$targetUri bytes=$bytesWritten published=$published finalUrl=$finalUrl",
+                error = error,
+            )
+            if (!published && bytesWritten <= 0L) {
+                resolver.delete(targetUri, null, null)
+                logDebug(stage = "download", message = "deleted incomplete target=$targetUri")
+            } else {
+                logDebug(stage = "download", message = "kept partially saved target=$targetUri bytes=$bytesWritten published=$published")
+            }
+            throw IllegalStateException(toUserFacingMessage(error, "Не удалось скачать трек."), error)
         }
     }
 
-    private suspend fun openDownloadConnectionWithRetry(blueprint: DownloadBlueprint): HttpURLConnection {
+    private suspend fun openDownloadSessionWithRetry(blueprint: DownloadBlueprint): DownloadSession {
         val delaysMs = listOf(0L, 1_500L, 3_000L, 5_000L)
         var lastError: Throwable? = null
 
@@ -245,25 +333,34 @@ class LibraryRepository(
             if (delayMs > 0) {
                 delay(delayMs)
             }
+            logDebug(
+                stage = "download-attempt",
+                message = "attempt=${index + 1}/${delaysMs.size} url=${blueprint.url} referer=${blueprint.refererUrl} delayMs=$delayMs",
+            )
             try {
-                return openDownloadConnectionAttempt(blueprint)
+                return openDownloadSessionAttempt(blueprint)
             } catch (error: Throwable) {
                 lastError = error
+                logError(
+                    stage = "download-attempt",
+                    message = "attempt=${index + 1}/${delaysMs.size} failed url=${blueprint.url}",
+                    error = error,
+                )
                 if (index == delaysMs.lastIndex) {
                     throw error
                 }
             }
         }
 
-        throw lastError ?: error("Не удалось скачать трек.")
+        throw IllegalStateException(toUserFacingMessage(lastError, "Не удалось скачать трек."), lastError)
     }
 
-    private fun openDownloadConnectionAttempt(blueprint: DownloadBlueprint): HttpURLConnection {
+    private fun openDownloadSessionAttempt(blueprint: DownloadBlueprint): DownloadSession {
         var currentUrl = blueprint.url
         var currentReferer = blueprint.refererUrl
         val cookies = linkedMapOf<String, String>()
 
-        repeat(8) {
+        repeat(8) { redirectIndex ->
             val connection = createConnection(
                 url = currentUrl,
                 referer = currentReferer,
@@ -276,27 +373,40 @@ class LibraryRepository(
                     val contentType = connection.contentType?.substringBefore(';')?.trim()?.lowercase().orEmpty()
                     val contentDisposition = connection.getHeaderField("Content-Disposition").orEmpty().lowercase()
                     val finalUrl = connection.url?.toString().orEmpty().ifBlank { currentUrl }
-                    val looksDownloadable = looksLikeDownloadResponse(
-                        url = finalUrl,
+                    val initialStream = connection.inputStream
+
+                    logDebug(
+                        stage = "http",
+                        message = "response=$responseCode url=$currentUrl finalUrl=$finalUrl contentType=$contentType contentDisposition=$contentDisposition redirectIndex=$redirectIndex",
+                    )
+
+                    val probe = inspectPayload(
+                        rawStream = initialStream,
+                        baseUrl = finalUrl,
                         contentType = contentType,
                         contentDisposition = contentDisposition,
                     )
 
-                    if (looksDownloadable) {
-                        return connection
-                    }
-
-                    val bodyPreview = readBodyPreview(connection.inputStream)
-                    val extractedUrl = extractMediaUrl(bodyPreview, finalUrl)
-                    connection.disconnect()
-
-                    if (!extractedUrl.isNullOrBlank() && extractedUrl != finalUrl) {
+                    if (probe.redirectUrl != null) {
+                        runCatching { initialStream.close() }
+                        connection.disconnect()
+                        logDebug(
+                            stage = "payload",
+                            message = "resolved nested media url=${probe.redirectUrl} from finalUrl=$finalUrl previewBytes=${probe.previewBytes} preview=${probe.previewText.take(140)}",
+                        )
                         currentReferer = finalUrl
-                        currentUrl = extractedUrl
+                        currentUrl = probe.redirectUrl
                     } else {
-                        val readableType = contentType.ifBlank { "неизвестный ответ" }
-                        val suffix = bodyPreview.takeIf { it.isNotBlank() }?.let { ": ${it.take(140)}" }.orEmpty()
-                        error("Сервер вернул $readableType вместо аудиофайла$suffix")
+                        logDebug(
+                            stage = "payload",
+                            message = "accepted finalUrl=$finalUrl previewBytes=${probe.previewBytes} contentType=$contentType",
+                        )
+                        return DownloadSession(
+                            connection = connection,
+                            stream = probe.stream ?: initialStream,
+                            finalUrl = finalUrl,
+                            contentType = contentType,
+                        )
                     }
                 }
 
@@ -307,6 +417,10 @@ class LibraryRepository(
                             error("HTTP $responseCode без адреса перенаправления.")
                         }
                     val redirectUrl = resolveUrl(currentUrl, location)
+                    logDebug(
+                        stage = "http",
+                        message = "redirect response=$responseCode from=$currentUrl to=$redirectUrl redirectIndex=$redirectIndex",
+                    )
                     connection.disconnect()
                     currentReferer = currentUrl
                     currentUrl = redirectUrl
@@ -315,16 +429,87 @@ class LibraryRepository(
                 else -> {
                     val errorPreview = readBodyPreview(connection.errorStream)
                     connection.disconnect()
-                    if (errorPreview.isBlank()) {
-                        error("HTTP $responseCode")
+                    val message = if (errorPreview.isBlank()) {
+                        "HTTP $responseCode"
                     } else {
-                        error("HTTP $responseCode: ${errorPreview.take(140)}")
+                        "HTTP $responseCode: ${errorPreview.take(140)}"
                     }
+                    error(message)
                 }
             }
         }
 
         error("Слишком много перенаправлений при скачивании.")
+    }
+
+    private fun inspectPayload(
+        rawStream: InputStream,
+        baseUrl: String,
+        contentType: String,
+        contentDisposition: String,
+    ): PayloadProbe {
+        val stream = PushbackInputStream(rawStream, PAYLOAD_PEEK_BYTES)
+        val buffer = ByteArray(PAYLOAD_PEEK_BYTES)
+        val bytesRead = stream.read(buffer)
+        if (bytesRead <= 0) {
+            return PayloadProbe(stream = stream)
+        }
+
+        val headBytes = buffer.copyOf(bytesRead)
+        val previewText = runCatching { String(headBytes, Charsets.UTF_8) }.getOrDefault("")
+            .replace("\\u0000", "")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        val loweredPreview = previewText.lowercase()
+
+        val looksLikeMarkup = loweredPreview.startsWith("<") ||
+            loweredPreview.startsWith("{") ||
+            loweredPreview.startsWith("[") ||
+            loweredPreview.contains("<html") ||
+            loweredPreview.contains("<!doctype") ||
+            loweredPreview.contains("<body")
+
+        val headerSaysAudio = contentDisposition.contains("filename=") ||
+            contentType.startsWith("audio/") ||
+            contentType == "application/octet-stream" ||
+            contentType == "application/download" ||
+            contentType == "binary/octet-stream"
+
+        if (looksLikeMarkup) {
+            val extractedUrl = extractMediaUrlFromBody(previewText, baseUrl)
+            if (!extractedUrl.isNullOrBlank() && extractedUrl != baseUrl) {
+                return PayloadProbe(
+                    redirectUrl = extractedUrl,
+                    previewText = previewText,
+                    previewBytes = bytesRead,
+                )
+            }
+            error("Сервер вернул HTML/JSON вместо аудиофайла: ${previewText.take(140)}")
+        }
+
+        if (!headerSaysAudio && !looksLikeAudioBytes(headBytes)) {
+            val extractedUrl = extractMediaUrlFromBody(previewText, baseUrl)
+            if (!extractedUrl.isNullOrBlank() && extractedUrl != baseUrl) {
+                return PayloadProbe(
+                    redirectUrl = extractedUrl,
+                    previewText = previewText,
+                    previewBytes = bytesRead,
+                )
+            }
+            if (previewText.isNotBlank()) {
+                logDebug(
+                    stage = "payload",
+                    message = "non-audio response without redirect baseUrl=$baseUrl contentType=$contentType preview=${previewText.take(140)}",
+                )
+            }
+        }
+
+        stream.unread(headBytes)
+        return PayloadProbe(
+            stream = stream,
+            previewText = previewText,
+            previewBytes = bytesRead,
+        )
     }
 
     private fun createConnection(
@@ -350,23 +535,17 @@ class LibraryRepository(
         }
     }
 
-    private fun looksLikeDownloadResponse(
-        url: String,
-        contentType: String,
-        contentDisposition: String,
-    ): Boolean {
-        if (contentDisposition.contains("filename=")) return true
-        if (contentType.startsWith("audio/")) return true
-        if (contentType == "application/octet-stream" || contentType == "application/download" || contentType == "binary/octet-stream") {
-            return true
+    private fun looksLikeAudioBytes(bytes: ByteArray): Boolean {
+        if (bytes.size >= 3) {
+            val startsWithId3 = bytes[0] == 'I'.code.toByte() && bytes[1] == 'D'.code.toByte() && bytes[2] == '3'.code.toByte()
+            if (startsWithId3) return true
         }
-        val loweredUrl = url.lowercase()
-        return loweredUrl.contains(".mp3") ||
-            loweredUrl.contains(".m4a") ||
-            loweredUrl.contains(".aac") ||
-            loweredUrl.contains(".ogg") ||
-            loweredUrl.contains(".wav") ||
-            loweredUrl.contains(".flac")
+        if (bytes.isNotEmpty()) {
+            val first = bytes[0].toInt() and 0xFF
+            val second = bytes.getOrNull(1)?.toInt()?.and(0xE0) ?: 0
+            if (first == 0xFF && second == 0xE0) return true
+        }
+        return false
     }
 
     private fun captureResponseCookies(
@@ -395,30 +574,6 @@ class LibraryRepository(
                     .trim()
             }
         }.getOrDefault("")
-    }
-
-    private fun extractMediaUrl(body: String, baseUrl: String): String? {
-        if (body.isBlank()) return null
-        val normalized = body
-            .replace("\\/", "/")
-            .replace("&amp;", "&")
-
-        val patterns = listOf(
-            Regex("""https?://[^\"'\s]+?\.(mp3|m4a|aac|ogg|wav|flac)(\?[^\"'\s]*)?""", RegexOption.IGNORE_CASE),
-            Regex("""[\"']((?:https?:)?//[^\"'\s]+?\.(?:mp3|m4a|aac|ogg|wav|flac)(?:\?[^\"'\s]*)?)[\"']""", RegexOption.IGNORE_CASE),
-            Regex("""\"url\"\s*:\s*\"([^\"]+)\"""", RegexOption.IGNORE_CASE),
-            Regex("""file\s*[:=]\s*[\"']([^\"']+)[\"']""", RegexOption.IGNORE_CASE),
-            Regex("""href\s*=\s*[\"']([^\"']+\.(?:mp3|m4a|aac|ogg|wav|flac)[^\"']*)[\"']""", RegexOption.IGNORE_CASE),
-            Regex("""(?:do=getById[^\"'\s<>]+)""", RegexOption.IGNORE_CASE),
-        )
-
-        patterns.forEach { pattern ->
-            val match = pattern.find(normalized) ?: return@forEach
-            val rawValue = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: match.value
-            return resolveUrl(baseUrl, rawValue)
-        }
-
-        return null
     }
 
     private fun resolveUrl(baseUrl: String, candidate: String): String {
@@ -497,6 +652,121 @@ class LibraryRepository(
             "wav" -> "audio/wav"
             "flac" -> "audio/flac"
             else -> "audio/mpeg"
+        }
+    }
+
+    private fun logDebug(stage: String, message: String) {
+        Log.d(TAG, "$stage | $message")
+    }
+
+    private fun logError(stage: String, message: String, error: Throwable?) {
+        if (error == null) {
+            Log.e(TAG, "$stage | $message | reason=(null)")
+        } else {
+            Log.e(TAG, "$stage | $message | reason=${describeThrowable(error)}", error)
+        }
+    }
+
+    private data class StoredDownload(
+        val persistedUri: String,
+        val finalUrl: String,
+        val contentType: String,
+        val bytesWritten: Long,
+    )
+
+    private data class DownloadSession(
+        val connection: HttpURLConnection,
+        val stream: InputStream,
+        val finalUrl: String,
+        val contentType: String,
+    )
+
+    private data class PayloadProbe(
+        val stream: InputStream? = null,
+        val redirectUrl: String? = null,
+        val previewText: String = "",
+        val previewBytes: Int = 0,
+    )
+
+    companion object {
+        private const val TAG = "YaNeoDexDownload"
+        private const val PAYLOAD_PEEK_BYTES = 1024
+
+        internal fun buildFallbackTrackRecord(
+            playbackUri: String,
+            sourceUri: String,
+            title: String,
+            artist: String,
+        ): TrackRecord {
+            return TrackRecord(
+                id = UUID.randomUUID().toString(),
+                uri = playbackUri,
+                sourceUri = sourceUri,
+                title = title.ifBlank { "Неизвестный трек" },
+                artist = artist.ifBlank { "Неизвестный исполнитель" },
+                durationMs = 0L,
+                importedAtEpochMs = System.currentTimeMillis(),
+            )
+        }
+
+        internal fun extractMediaUrlFromBody(body: String, baseUrl: String): String? {
+            if (body.isBlank()) return null
+            val normalized = body
+                .replace("\\/", "/")
+                .replace("&amp;", "&")
+
+            val patterns = listOf(
+                Regex("""https?://[^\"'\s]+?\.(mp3|m4a|aac|ogg|wav|flac)(\?[^\"'\s]*)?""", RegexOption.IGNORE_CASE),
+                Regex("""[\"']((?:https?:)?//[^\"'\s]+?\.(?:mp3|m4a|aac|ogg|wav|flac)(?:\?[^\"'\s]*)?)[\"']""", RegexOption.IGNORE_CASE),
+                Regex("""\"url\"\s*:\s*\"([^\"]+)\"""", RegexOption.IGNORE_CASE),
+                Regex("""file\s*[:=]\s*[\"']([^\"']+)[\"']""", RegexOption.IGNORE_CASE),
+                Regex("""href\s*=\s*[\"']([^\"']+\.(?:mp3|m4a|aac|ogg|wav|flac)[^\"']*)[\"']""", RegexOption.IGNORE_CASE),
+                Regex("""(?:do=getById[^\"'\s<>]+)""", RegexOption.IGNORE_CASE),
+            )
+
+            patterns.forEach { pattern ->
+                val match = pattern.find(normalized) ?: return@forEach
+                val rawValue = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: match.value
+                return resolveRelativeUrl(baseUrl, rawValue)
+            }
+
+            return null
+        }
+
+        internal fun describeThrowable(error: Throwable): String {
+            val className = error::class.java.name
+            val message = error.message?.trim().orEmpty().ifBlank { "без сообщения" }
+            val causeMessage = error.cause?.message?.trim().orEmpty()
+            return if (causeMessage.isBlank()) {
+                "$className: $message"
+            } else {
+                "$className: $message | cause=${error.cause!!::class.java.name}: $causeMessage"
+            }
+        }
+
+        internal fun toUserFacingMessage(error: Throwable?, fallback: String): String {
+            if (error == null) return fallback
+            val message = error.message?.trim().orEmpty()
+            if (message.isNotBlank()) return message
+            val causeMessage = error.cause?.message?.trim().orEmpty()
+            if (causeMessage.isNotBlank()) return causeMessage
+            return when (error) {
+                is java.net.SocketTimeoutException -> "Сервер слишком долго отвечает. Повторите попытку."
+                is java.io.FileNotFoundException -> "Файл не найден на стороне источника."
+                else -> fallback
+            }
+        }
+
+        private fun resolveRelativeUrl(baseUrl: String, candidate: String): String {
+            val normalized = candidate.trim().replace("&amp;", "&")
+            return when {
+                normalized.startsWith("http://") || normalized.startsWith("https://") -> normalized
+                normalized.startsWith("//") -> "https:$normalized"
+                normalized.startsWith("/") || normalized.startsWith("?") || normalized.startsWith("do=") -> {
+                    URL(URL(baseUrl), normalized).toString()
+                }
+                else -> URL(URL(baseUrl), normalized).toString()
+            }
         }
     }
 }

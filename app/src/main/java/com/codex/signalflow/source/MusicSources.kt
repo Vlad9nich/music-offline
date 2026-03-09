@@ -1,5 +1,6 @@
 ﻿package com.codex.signalflow.source
 
+import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.jsoup.Jsoup
@@ -33,69 +34,10 @@ data class DownloadBlueprint(
     val refererUrl: String? = null,
 )
 
-data class HtmlTrackSelectorBlueprint(
-    val itemSelector: String,
-    val titleSelector: String,
-    val artistSelector: String,
-    val linkSelector: String,
-    val downloadSelector: String? = null,
-)
-
 interface MusicSource {
     val descriptor: SourceDescriptor
     suspend fun search(query: String): List<RemoteTrackCandidate>
     suspend fun resolve(track: RemoteTrackCandidate): DownloadBlueprint
-}
-
-open class SelectorBasedHtmlMusicSource(
-    override val descriptor: SourceDescriptor,
-    private val blueprint: HtmlTrackSelectorBlueprint,
-    private val searchUrlBuilder: (String) -> String,
-) : MusicSource {
-    override suspend fun search(query: String): List<RemoteTrackCandidate> = withContext(Dispatchers.IO) {
-        val url = searchUrlBuilder(query.trim())
-        val document = baseRequest(url)
-            .get()
-        parseDocument(document)
-    }
-
-    fun parseHtml(html: String, baseUrl: String): List<RemoteTrackCandidate> {
-        return parseDocument(Jsoup.parse(html, baseUrl))
-    }
-
-    override suspend fun resolve(track: RemoteTrackCandidate): DownloadBlueprint {
-        val downloadUrl = track.downloadUrl ?: error("Не удалось определить ссылку на загрузку для ${track.title}")
-        return DownloadBlueprint(
-            title = track.title,
-            artist = track.artist,
-            url = downloadUrl,
-            suggestedFilename = "${track.artist} - ${track.title}.mp3",
-            refererUrl = track.detailUrl,
-        )
-    }
-
-    private fun parseDocument(document: Document): List<RemoteTrackCandidate> {
-        return document.select(blueprint.itemSelector).mapNotNull { element ->
-            val title = element.selectFirst(blueprint.titleSelector)?.text()?.trim().orEmpty()
-            val artist = element.selectFirst(blueprint.artistSelector)?.text()?.trim().orEmpty()
-            val detailUrl = element.selectFirst(blueprint.linkSelector)?.absUrl("href").orEmpty()
-            val downloadUrl = blueprint.downloadSelector
-                ?.let { selector -> element.selectFirst(selector)?.absUrl("href") }
-                ?.takeIf { it.isNotBlank() }
-
-            if (title.isBlank() || detailUrl.isBlank()) {
-                null
-            } else {
-                RemoteTrackCandidate(
-                    sourceId = descriptor.id,
-                    title = title,
-                    artist = artist.ifBlank { "Неизвестный исполнитель" },
-                    detailUrl = detailUrl,
-                    downloadUrl = downloadUrl,
-                )
-            }
-        }
-    }
 }
 
 abstract class HtmlMusicSourceTemplate(
@@ -103,67 +45,49 @@ abstract class HtmlMusicSourceTemplate(
 ) : MusicSource {
     override suspend fun search(query: String): List<RemoteTrackCandidate> = withContext(Dispatchers.IO) {
         if (query.isBlank()) return@withContext emptyList()
-        val document = requestDocument(buildSearchUrl(query.trim()))
-        mapSearchDocument(document)
+        val searchUrl = buildSearchUrl(query.trim())
+        debugLog("search start source=${descriptor.id} query=$query url=$searchUrl")
+        val document = requestDocument(searchUrl)
+        val results = mapSearchDocument(document)
+        debugLog("search done source=${descriptor.id} query=$query results=${results.size} location=${document.location()}")
+        results
     }
 
     override suspend fun resolve(track: RemoteTrackCandidate): DownloadBlueprint = withContext(Dispatchers.IO) {
-        val document = requestDocument(track.detailUrl, referer = "https://poiskm.net/")
-        mapTrackDetails(track, document)
+        debugLog("resolve start source=${descriptor.id} detail=${track.detailUrl} direct=${track.downloadUrl}")
+        val blueprint = mapTrackDetails(track, requestDocument(track.detailUrl, referer = "https://web.ligaudio.ru/"))
+        debugLog("resolve done source=${descriptor.id} url=${blueprint.url}")
+        blueprint
     }
 
     protected abstract fun buildSearchUrl(query: String): String
-
     protected abstract fun mapSearchDocument(document: Document): List<RemoteTrackCandidate>
+    protected abstract fun mapTrackDetails(track: RemoteTrackCandidate, document: Document): DownloadBlueprint
 
-    protected abstract fun mapTrackDetails(
-        track: RemoteTrackCandidate,
-        document: Document,
-    ): DownloadBlueprint
+    protected fun requestDocument(url: String, referer: String? = null): Document = baseRequest(url, referer).get()
+    protected fun Element.textOrEmpty(selector: String): String = selectFirst(selector)?.text()?.trim().orEmpty()
 
-    protected fun requestDocument(url: String, referer: String? = null): Document {
-        return baseRequest(url, referer).get()
-    }
+    companion object {
+        private const val TAG = "YaNeoDexSource"
+        protected const val DEFAULT_REFERER = "https://web.ligaudio.ru/"
 
-    protected fun Element.textOrEmpty(selector: String): String {
-        return selectFirst(selector)?.text()?.trim().orEmpty()
-    }
-
-    protected fun Element.absoluteHref(selector: String): String {
-        return selectFirst(selector)?.absUrl("href").orEmpty()
+        private fun debugLog(message: String) {
+            runCatching { Log.d(TAG, message) }
+        }
     }
 }
 
-class PoiskmNetSource : HtmlMusicSourceTemplate(
+class LigaudioSource : HtmlMusicSourceTemplate(
     descriptor = SourceDescriptor(
-        id = "poiskm",
-        name = "Poiskm.net",
+        id = "ligaudio",
+        name = "Ligaudio",
         status = "Активен",
-        description = "Поиск и разбор карточек треков с отдельной кнопкой скачивания, fallback-селекторами и повторными стратегиями поиска.",
+        description = "Поиск и скачивание с web.ligaudio.ru.",
         isEnabled = true,
     ),
 ) {
-    override suspend fun search(query: String): List<RemoteTrackCandidate> = withContext(Dispatchers.IO) {
-        val normalizedQuery = normalizeQuery(query)
-        if (normalizedQuery.isBlank()) return@withContext emptyList()
-
-        val uniqueResults = linkedMapOf<String, RemoteTrackCandidate>()
-        buildSearchUrls(normalizedQuery).forEach { url ->
-            val results = runCatching {
-                mapSearchDocument(requestDocument(url, referer = "https://poiskm.net/"))
-            }.getOrDefault(emptyList())
-
-            results.forEach { candidate ->
-                uniqueResults.putIfAbsent(candidate.uniqueKey(), candidate)
-            }
-        }
-
-        uniqueResults.values.toList()
-    }
-
     override fun buildSearchUrl(query: String): String {
-        val slug = tokenize(query).joinToString("-")
-        return "https://poiskm.net/show/$slug"
+        return "https://web.ligaudio.ru/mp3/${MusicSourceCatalog.encodedPathSegment(query)}"
     }
 
     override fun mapSearchDocument(document: Document): List<RemoteTrackCandidate> {
@@ -173,96 +97,66 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
                 title = listing.title,
                 artist = listing.artist,
                 detailUrl = listing.detailUrl,
-                downloadUrl = listing.directDownloadUrl ?: listing.songId
-                    ?.takeIf { listing.number != null }
-                    ?.let { songId -> buildDownloadUrl(songId, listing.number!!) },
+                downloadUrl = listing.directDownloadUrl,
             )
         }
     }
 
-    override fun mapTrackDetails(
-        track: RemoteTrackCandidate,
-        document: Document,
-    ): DownloadBlueprint {
+    internal fun parseSearchHtml(html: String, baseUrl: String): List<RemoteTrackCandidate> {
+        return mapSearchDocument(Jsoup.parse(html, baseUrl))
+    }
+
+    override fun mapTrackDetails(track: RemoteTrackCandidate, document: Document): DownloadBlueprint {
+        val directUrl = track.downloadUrl?.takeIf { looksLikeDownloadUrl(it) }
+        if (!directUrl.isNullOrBlank()) {
+            return DownloadBlueprint(
+                title = track.title,
+                artist = track.artist,
+                url = directUrl,
+                suggestedFilename = "${track.artist} - ${track.title}.mp3",
+                refererUrl = "https://web.ligaudio.ru/",
+            )
+        }
+
         val pageBaseUrl = document.location().ifBlank { document.baseUri() }.ifBlank { track.detailUrl }
-        val matchedListing = parseTrackCards(document).firstOrNull { candidate -> candidate.matches(track) }
-        val resolvedUrl = track.downloadUrl
-            ?: matchedListing?.directDownloadUrl
-            ?: extractDirectDownloadUrl(document.body(), document.body(), pageBaseUrl)
-            ?: matchedListing?.songId?.takeIf { matchedListing.number != null }
-                ?.let { songId -> buildDownloadUrl(songId, matchedListing.number!!) }
-            ?: error("Ссылка на загрузку не найдена для ${track.artist} - ${track.title}")
+        val listing = parseTrackCards(document).firstOrNull { it.matches(track) }
+        val resolvedUrl = firstNotBlank(
+            listing?.directDownloadUrl?.takeIf { looksLikeDownloadUrl(it) },
+            extractDirectDownloadUrl(document.body(), document.body(), pageBaseUrl),
+        )?.takeIf { looksLikeDownloadUrl(it) }
+            ?: error("Не удалось найти прямую ссылку на скачивание для ${track.artist} - ${track.title}.")
 
         return DownloadBlueprint(
             title = track.title,
             artist = track.artist,
             url = resolvedUrl,
             suggestedFilename = "${track.artist} - ${track.title}.mp3",
-            refererUrl = track.detailUrl,
+            refererUrl = "https://web.ligaudio.ru/",
         )
     }
 
-    fun parseSearchHtml(html: String, baseUrl: String): List<RemoteTrackCandidate> {
-        return mapSearchDocument(Jsoup.parse(html, baseUrl))
-    }
+    private fun parseTrackCards(document: Document): List<LigaudioListing> {
+        val items = document.select("#result .item[itemprop='track']").ifEmpty { document.select("#result .item") }
+        if (items.isEmpty()) return emptyList()
+        val baseUrl = document.location().ifBlank { document.baseUri() }.ifBlank { "https://web.ligaudio.ru/" }
+        val listings = linkedMapOf<String, LigaudioListing>()
 
-    private fun buildSearchUrls(query: String): List<String> {
-        val tokens = tokenize(query)
-        if (tokens.isEmpty()) return emptyList()
-
-        val urls = linkedSetOf<String>()
-        urls += "https://poiskm.net/show/${tokens.joinToString("-")}"
-        for (splitIndex in 1 until tokens.size) {
-            val left = tokens.take(splitIndex).joinToString("-")
-            val right = tokens.drop(splitIndex).joinToString("-")
-            if (left.isNotBlank() && right.isNotBlank()) {
-                urls += "https://poiskm.net/show/$left/$right"
-            }
-        }
-
-        val encodedQuery = MusicSourceCatalog.encodedQuery(query)
-        urls += "https://poiskm.net/?do=search&subaction=search&story=$encodedQuery"
-        urls += "https://poiskm.net/index.php?do=search&subaction=search&story=$encodedQuery"
-        return urls.toList()
-    }
-
-    private fun parseTrackCards(document: Document): List<PoiskmListing> {
-        val baseUrl = document.location().ifBlank { document.baseUri() }
-        val listings = linkedMapOf<String, PoiskmListing>()
-
-        document.select("div.title_wrap, [data-songid], [id^=song-]").forEach { item ->
-            val container = item.closest("[data-songid], [id^=song-]") ?: item
+        for (item in items) {
+            val container = item.selectFirst("div") ?: item
             val title = extractTitle(item, container)
-            if (title.isBlank()) return@forEach
-
             val artist = extractArtist(item, container)
-            val songId = firstNotBlank(
-                container.attr("data-songid"),
-                item.attr("data-songid"),
-                container.id().removePrefix("song-").takeIf { it != container.id() },
-                item.id().removePrefix("song-").takeIf { it != item.id() },
-                extractAttr(container, "data-songid"),
-                extractAttr(item, "data-songid"),
-            )
-            val number = firstNotBlank(
-                item.selectFirst("span.play")?.attr("data-number"),
-                container.selectFirst("span.play")?.attr("data-number"),
-                extractAttr(container, "data-number"),
-                extractAttr(item, "data-number"),
-            )
-            val detailUrl = firstNotBlank(
-                item.absoluteHref("a[href*=/show/]"),
-                container.absoluteHref("a[href*=/show/]"),
-                baseUrl,
-            ).orEmpty()
             val directDownloadUrl = extractDirectDownloadUrl(item, container, baseUrl)
+            if (title.isBlank() || directDownloadUrl.isNullOrBlank()) continue
 
-            val listing = PoiskmListing(
+            val detailUrl = normalizeUrlCandidate(
+                item.selectFirst(".autor a[href*='/mp3/']")?.attr("href"),
+                baseUrl,
+            ) ?: "https://web.ligaudio.ru/"
+
+            val listing = LigaudioListing(
                 title = title,
                 artist = artist.ifBlank { "Неизвестный исполнитель" },
                 detailUrl = detailUrl,
-                songId = songId,
-                number = number,
                 directDownloadUrl = directDownloadUrl,
             )
             listings.putIfAbsent(listing.uniqueKey(), listing)
@@ -272,64 +166,42 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
     }
 
     private fun extractTitle(item: Element, container: Element): String {
-        val titledLink = item.select("a")
-            .firstOrNull { anchor ->
-                val text = anchor.text().trim()
-                text.isNotBlank() &&
-                    !anchor.classNames().contains("artist-name") &&
-                    !anchor.attr("href").contains("/artist/")
-            }
-            ?.text()
-            .orEmpty()
-            .trim()
-
-        val fallbackText = parseArtistTitlePair(container.text()).second
         return firstNotBlank(
-            item.textOrEmpty("span.title-name"),
-            container.textOrEmpty("span.title-name"),
-            titledLink,
-            fallbackText,
+            item.textOrEmpty(".title .title"),
+            item.textOrEmpty("span.title[itemprop='name']"),
+            container.textOrEmpty(".title"),
+            parseArtistTitlePair(container.text()).second,
         ).orEmpty()
     }
 
     private fun extractArtist(item: Element, container: Element): String {
-        val artistLink = item.textOrEmpty("a.artist-name")
-            .ifBlank { container.textOrEmpty("a.artist-name") }
-            .ifBlank {
-                item.selectFirst("a[href*=/artist/]")?.text()?.trim().orEmpty()
-            }
-            .ifBlank {
-                container.selectFirst("a[href*=/artist/]")?.text()?.trim().orEmpty()
-            }
-
-        val fallbackArtist = parseArtistTitlePair(container.text()).first
-        return firstNotBlank(artistLink, fallbackArtist).orEmpty()
+        return firstNotBlank(
+            item.textOrEmpty(".title .autor"),
+            item.textOrEmpty("span.autor[itemprop='byArtist']"),
+            item.select(".autor a[href*='/mp3/']").joinToString(", ") { it.text().trim() }.takeIf { it.isNotBlank() },
+            parseArtistTitlePair(container.text()).first,
+        ).orEmpty()
     }
 
     private fun extractDirectDownloadUrl(item: Element, container: Element, baseUrl: String): String? {
         val selectorCandidates = listOf(
-            "a[href*='do=getById']",
-            "a[href*='.mp3']",
-            "a[href*='.m4a']",
-            "a[href*='/download/']",
-            "a.download",
-            "a[class*='download']",
-            "a[title*='Скачать']",
-            "a[aria-label*='Скачать']",
+            "a.down[href]",
+            "a.download[href]",
+            "a[href*='storage'][href]",
+            "a[href*='.mp3'][href]",
+            "a[href*='.m4a'][href]",
+            "a[href*='.aac'][href]",
+            "a[href*='.ogg'][href]",
             "a[download]",
-            "button[data-url]",
-            "button[data-file]",
-            "button[data-download]",
-            "[data-url*='getById']",
-            "[data-url*='.mp3']",
-            "[data-file*='.mp3']",
+            "[data-url]",
+            "[data-file]",
+            "[data-download]",
         )
-
         selectorCandidates.forEach { selector ->
             val direct = listOf(item, container).firstNotNullOfOrNull { element ->
                 element.selectFirst(selector)?.let { candidate ->
                     normalizeUrlCandidate(
-                        value = firstNotBlank(
+                        firstNotBlank(
                             candidate.absUrl("href"),
                             candidate.attr("href"),
                             candidate.attr("data-url"),
@@ -337,205 +209,111 @@ class PoiskmNetSource : HtmlMusicSourceTemplate(
                             candidate.attr("data-file"),
                             candidate.attr("download"),
                         ),
-                        baseUrl = baseUrl,
-                    )
+                        baseUrl,
+                    )?.takeIf { looksLikeDownloadUrl(it) }
                 }
             }
             if (!direct.isNullOrBlank()) return direct
         }
 
-        val attributeCandidates = listOf(
-            item.outerHtml(),
-            container.outerHtml(),
-            item.attr("onclick"),
-            container.attr("onclick"),
-        )
-
+        val attributeCandidates = listOf(item.outerHtml(), container.outerHtml(), item.attr("onclick"), container.attr("onclick"))
         val regexCandidates = listOf(
             Regex("""https?://[^\"'\s<>]+?(?:\.mp3|\.m4a|\.aac|\.ogg|\.wav|\.flac)(?:\?[^\"'\s<>]*)?""", RegexOption.IGNORE_CASE),
+            Regex("""//[^\"'\s<>]+?(?:\.mp3|\.m4a|\.aac|\.ogg|\.wav|\.flac)(?:\?[^\"'\s<>]*)?""", RegexOption.IGNORE_CASE),
             Regex("""(?:href|src|data-url|data-file|data-download)=[\"']([^\"']+)[\"']""", RegexOption.IGNORE_CASE),
-            Regex("""(?:do=getById[^\"'\s<>]+)""", RegexOption.IGNORE_CASE),
-            Regex("""(?:https?:)?//[^\"'\s<>]+?/(?:download|uploads?)/[^\"'\s<>]+""", RegexOption.IGNORE_CASE),
         )
-
         attributeCandidates.forEach { raw ->
             regexCandidates.forEach { regex ->
                 val match = regex.find(raw) ?: return@forEach
                 val candidate = match.groupValues.getOrNull(1)?.takeIf { it.isNotBlank() } ?: match.value
                 val normalized = normalizeUrlCandidate(candidate, baseUrl)
-                if (!normalized.isNullOrBlank() && looksLikeDownloadUrl(normalized)) {
-                    return normalized
-                }
+                if (!normalized.isNullOrBlank() && looksLikeDownloadUrl(normalized)) return normalized
             }
         }
-
         return null
     }
 
     private fun normalizeUrlCandidate(value: String?, baseUrl: String): String? {
-        val trimmed = value?.trim().orEmpty()
-            .removePrefix("javascript:")
-            .trim('"', '\'', ' ')
-            .replace("\\/", "/")
-            .replace("&amp;", "&")
+        val trimmed = value?.trim().orEmpty().removePrefix("javascript:").trim('"', '\'', ' ').replace("\\/", "/").replace("&amp;", "&")
         if (trimmed.isBlank()) return null
-        return when {
+        val normalized = when {
             trimmed.startsWith("http://") || trimmed.startsWith("https://") -> trimmed
             trimmed.startsWith("//") -> "https:$trimmed"
-            trimmed.startsWith("/") || trimmed.startsWith("?") || trimmed.startsWith("do=") -> {
-                URL(URL(baseUrl.ifBlank { "https://poiskm.net/" }), trimmed).toString()
-            }
-            else -> URL(URL(baseUrl.ifBlank { "https://poiskm.net/" }), trimmed).toString()
+            trimmed.startsWith("/") || trimmed.startsWith("?") -> URL(URL(baseUrl), trimmed).toString()
+            else -> URL(URL(baseUrl), trimmed).toString()
         }
+        return normalized.takeUnless { isFalseDownloadPage(it) }
     }
 
     private fun looksLikeDownloadUrl(url: String): Boolean {
         val lowered = url.lowercase()
-        return lowered.contains("do=getbyid") ||
-            lowered.contains("download") ||
-            lowered.contains("/dl/") ||
-            lowered.contains(".mp3") ||
-            lowered.contains(".m4a") ||
-            lowered.contains(".aac") ||
-            lowered.contains(".ogg") ||
-            lowered.contains(".wav") ||
-            lowered.contains(".flac")
+        if (isFalseDownloadPage(lowered)) return false
+        return lowered.contains("storage.lightaudio.ru") || lowered.contains("storage1.lightaudio.ru") ||
+            lowered.contains("storage2.lightaudio.ru") || lowered.contains("storage3.lightaudio.ru") ||
+            lowered.contains("storage4.lightaudio.ru") || lowered.contains("storage5.lightaudio.ru") ||
+            lowered.contains("storage6.lightaudio.ru") || lowered.contains("storage7.lightaudio.ru") ||
+            lowered.contains("storage8.lightaudio.ru") || lowered.contains("storage9.lightaudio.ru") ||
+            lowered.contains("/download/") || lowered.contains(".mp3") || lowered.contains(".m4a") ||
+            lowered.contains(".aac") || lowered.contains(".ogg") || lowered.contains(".wav") || lowered.contains(".flac")
+    }
+
+    private fun isFalseDownloadPage(url: String?): Boolean {
+        val lowered = url?.trim()?.lowercase().orEmpty()
+        if (lowered.isBlank()) return false
+        return ((lowered.contains("lightaudio.ru/mp3") || lowered.contains("web.ligaudio.ru/mp3")) && !lowered.contains(".mp3")) ||
+            lowered.endsWith("/mp3") || lowered.endsWith("/mp3/")
     }
 
     private fun parseArtistTitlePair(rawText: String): Pair<String, String> {
-        val cleaned = rawText
-            .replace(Regex("\\s+"), " ")
-            .replace(Regex("\\b\\d{1,2}:\\d{2}\\b"), "")
-            .trim(' ', '-', '–', '—', '•')
-
+        val cleaned = rawText.replace(Regex("\\s+"), " ").replace(Regex("\\b\\d{1,2}:\\d{2}\\b"), "").trim(' ', '-', '–', '—', '•')
         if (cleaned.isBlank()) return "" to ""
-
         listOf(" - ", " – ", " — ").forEach { delimiter ->
             val index = cleaned.indexOf(delimiter)
             if (index > 0) {
                 val artist = cleaned.substring(0, index).trim()
                 val title = cleaned.substring(index + delimiter.length).trim()
-                if (artist.isNotBlank() && title.isNotBlank()) {
-                    return artist to title
-                }
+                if (artist.isNotBlank() && title.isNotBlank()) return artist to title
             }
         }
-
         return "" to cleaned
     }
 
-    private fun normalizeQuery(query: String): String {
-        return query
-            .replace('ё', 'е')
-            .trim()
-            .replace(Regex("\\s+"), " ")
-            .lowercase()
-    }
+    private fun normalizeQuery(query: String): String = query.replace('ё', 'е').trim().replace(Regex("\\s+"), " ").lowercase()
+    private fun firstNotBlank(vararg values: String?): String? = values.firstOrNull { !it.isNullOrBlank() }?.trim()
 
-    private fun tokenize(query: String): List<String> {
-        return normalizeQuery(query)
-            .split(Regex("[^\\p{L}\\p{N}]+"))
-            .map { token -> token.trim('-') }
-            .filter { token -> token.isNotBlank() }
-    }
-
-    private fun buildDownloadUrl(songId: String, number: String): String {
-        return "https://poiskm.net/?do=getById&id=$songId&n=$number"
-    }
-
-    private fun extractAttr(element: Element, name: String): String {
-        val regex = Regex("""$name\\s*=\\s*[\"']?([A-Za-z0-9_\-:/.?=&%]+)""")
-        return regex.find(element.outerHtml())?.groupValues?.getOrNull(1).orEmpty()
-    }
-
-    private fun firstNotBlank(vararg values: String?): String? {
-        return values.firstOrNull { !it.isNullOrBlank() }?.trim()
-    }
-
-    private fun PoiskmListing.matches(track: RemoteTrackCandidate): Boolean {
+    private fun LigaudioListing.matches(track: RemoteTrackCandidate): Boolean {
         val titleMatches = normalizeQuery(title) == normalizeQuery(track.title)
         val artistMatches = normalizeQuery(artist) == normalizeQuery(track.artist)
         return titleMatches && (artistMatches || track.artist.isBlank() || artist == "Неизвестный исполнитель")
     }
 
-    private fun RemoteTrackCandidate.uniqueKey(): String {
-        return "$sourceId|${normalizeQuery(artist)}|${normalizeQuery(title)}|${downloadUrl ?: detailUrl}"
-    }
-
-    private data class PoiskmListing(
+    private data class LigaudioListing(
         val title: String,
         val artist: String,
         val detailUrl: String,
-        val songId: String?,
-        val number: String?,
         val directDownloadUrl: String?,
     ) {
-        fun uniqueKey(): String {
-            return "${artist.lowercase()}|${title.lowercase()}|${directDownloadUrl.orEmpty()}|${songId.orEmpty()}|${number.orEmpty()}"
-        }
-    }
-}
-
-class PendingHtmlSourceTemplate(
-    name: String = "Черновик HTML-источника",
-) : HtmlMusicSourceTemplate(
-    descriptor = SourceDescriptor(
-        id = "pending-html-template",
-        name = name,
-        status = "Только каркас",
-        description = "Универсальный каркас HTML-парсера с переопределяемым поиском и разбором страницы трека.",
-        isEnabled = false,
-    ),
-) {
-    override fun buildSearchUrl(query: String): String {
-        error("Переопределите buildSearchUrl() конкретным адресом поиска.")
-    }
-
-    override fun mapSearchDocument(document: Document): List<RemoteTrackCandidate> {
-        return emptyList()
-    }
-
-    override fun mapTrackDetails(
-        track: RemoteTrackCandidate,
-        document: Document,
-    ): DownloadBlueprint {
-        error("Переопределите mapTrackDetails() разбором страницы трека конкретного источника.")
-    }
-}
-
-class UnconfiguredHtmlSource : MusicSource {
-    override val descriptor = SourceDescriptor(
-        id = "html-blueprint",
-        name = "HTML-шаблон",
-        status = "Адаптер готов",
-        description = "Универсальный CSS-selector парсер для будущих источников. Конкретный провайдер не настроен.",
-        isEnabled = false,
-    )
-
-    override suspend fun search(query: String): List<RemoteTrackCandidate> = emptyList()
-
-    override suspend fun resolve(track: RemoteTrackCandidate): DownloadBlueprint {
-        error("Активный источник не настроен.")
+        fun uniqueKey(): String = "${artist.lowercase()}|${title.lowercase()}|${directDownloadUrl.orEmpty()}|${detailUrl}"
     }
 }
 
 class MusicSourceCatalog(
-    private val sources: List<MusicSource> = listOf(
-        PoiskmNetSource(),
-        UnconfiguredHtmlSource(),
-        PendingHtmlSourceTemplate(),
-    ),
+    private val sources: List<MusicSource> = listOf(LigaudioSource()),
 ) {
     val descriptors: List<SourceDescriptor>
         get() = sources.map { it.descriptor }
 
     suspend fun searchAll(query: String): List<RemoteTrackCandidate> {
         if (query.isBlank()) return emptyList()
-        return sources
-            .filter { it.descriptor.isEnabled }
-            .flatMap { source ->
-                runCatching { source.search(query) }.getOrDefault(emptyList())
-            }
+        return sources.filter { it.descriptor.isEnabled }.flatMap { source ->
+            runCatching { source.search(query) }
+                .onFailure { error ->
+                    runCatching {
+                        Log.e("YaNeoDexSource", "search failed source=${source.descriptor.id} query=$query", error)
+                    }
+                }
+                .getOrDefault(emptyList())
+        }
     }
 
     suspend fun resolve(track: RemoteTrackCandidate): DownloadBlueprint {
@@ -547,14 +325,16 @@ class MusicSourceCatalog(
     fun hasEnabledSources(): Boolean = sources.any { it.descriptor.isEnabled }
 
     companion object {
-        fun encodedQuery(query: String): String = URLEncoder.encode(query, StandardCharsets.UTF_8.toString())
+        fun encodedPathSegment(query: String): String = URLEncoder.encode(query, StandardCharsets.UTF_8.toString()).replace("+", "%20")
     }
 }
 
 private fun baseRequest(url: String, referer: String? = null) = Jsoup.connect(url)
     .userAgent("Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Mobile Safari/537.36 YaNeoDex/1.0")
-    .referrer(referer ?: "https://poiskm.net/")
+    .referrer(referer ?: "https://web.ligaudio.ru/")
     .header("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
     .header("Accept-Language", "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7")
     .timeout(15_000)
     .followRedirects(true)
+
+

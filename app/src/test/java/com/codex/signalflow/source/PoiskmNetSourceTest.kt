@@ -1,68 +1,61 @@
 ﻿package com.codex.signalflow.source
 
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
-class PoiskmNetSourceTest {
+class LigaudioSourceTest {
     @Test
-    fun parsesPoiskmSearchCardsIntoRemoteCandidates() {
+    fun parsesLightaudioSearchCardsIntoRemoteCandidates() {
         val html = """
-            <div class="title_wrap" data-songid="321">
-                <a class="artist-name" href="/artist/test">Test Artist</a>
-                <span class="title-name">Test Song</span>
-                <span class="play" data-number="7"></span>
-            </div>
-        """.trimIndent()
-
-        val source = PoiskmNetSource()
-        val results = source.parseSearchHtml(html, "https://poiskm.net/show/test-song")
-
-        assertEquals(1, results.size)
-        assertEquals("Test Song", results.first().title)
-        assertEquals("Test Artist", results.first().artist)
-        assertEquals("https://poiskm.net/show/test-song", results.first().detailUrl)
-        assertNotNull(results.first().downloadUrl)
-        assertEquals("https://poiskm.net/?do=getById&id=321&n=7", results.first().downloadUrl)
-    }
-
-    @Test
-    fun fallsBackToPlainTextTrackParsingWhenTitleSelectorIsMissing() {
-        val html = """
-            <div id="song-987">
-                <div class="title_wrap">
-                    <a href="/artist/test-artist">Test Artist</a> - Test Song
-                    <span class="play" data-number="5"></span>
+            <div id="result">
+                <div class="item" itemprop="track">
+                    <div>
+                        <div class="title">
+                            <span class="title" itemprop="name">Юра Шатунов</span>
+                            <i class="m"> &mdash; </i>
+                            <span class="autor" itemprop="byArtist">
+                                <a href="/mp3/aleks%20ataman">ALEKS ATAMAN</a>,
+                                <a href="/mp3/finik">FINIK</a>
+                            </span>
+                        </div>
+                        <a class="down" href="//storage1.lightaudio.ru/dm/path/song.mp3?d=123"></a>
+                    </div>
                 </div>
             </div>
         """.trimIndent()
 
-        val source = PoiskmNetSource()
-        val results = source.parseSearchHtml(html, "https://poiskm.net/show/test-artist/test-song")
+        val source = LigaudioSource()
+        val results = source.parseSearchHtml(html, "https://lightaudio.ru/mp3/aleks%20ataman")
 
         assertEquals(1, results.size)
-        assertEquals("Test Song", results.first().title)
-        assertEquals("Test Artist", results.first().artist)
-        assertEquals("https://poiskm.net/?do=getById&id=987&n=5", results.first().downloadUrl)
+        assertEquals("Юра Шатунов", results.first().title)
+        assertEquals("ALEKS ATAMAN, FINIK", results.first().artist)
+        assertEquals("https://storage1.lightaudio.ru/dm/path/song.mp3?d=123", results.first().downloadUrl)
     }
 
     @Test
-    fun prefersExplicitDownloadButtonWhenItExists() {
-        val html = """
-            <div id="song-555" data-songid="555">
-                <div class="title_wrap">
-                    <a class="artist-name" href="/artist/test-artist">Test Artist</a>
-                    <span class="title-name">Button Song</span>
-                    <span class="play" data-number="9"></span>
-                    <a class="download" href="/?do=getById&id=555&amp;n=9">Скачать</a>
-                </div>
-            </div>
-        """.trimIndent()
+    fun resolvesDirectDownloadWithoutDetailPageLookup() {
+        val track = RemoteTrackCandidate(
+            sourceId = "ligaudio",
+            title = "Юра Шатунов",
+            artist = "ALEKS ATAMAN, FINIK",
+            detailUrl = "https://lightaudio.ru/mp3/aleks%20ataman",
+            downloadUrl = "https://storage1.lightaudio.ru/dm/path/song.mp3?d=123",
+        )
 
-        val source = PoiskmNetSource()
-        val results = source.parseSearchHtml(html, "https://poiskm.net/show/test-artist/button-song")
+        val source = LigaudioSource()
+        val blueprint = runBlocking { source.resolve(track) }
 
-        assertEquals(1, results.size)
-        assertEquals("https://poiskm.net/?do=getById&id=555&n=9", results.first().downloadUrl)
+        assertEquals("https://storage1.lightaudio.ru/dm/path/song.mp3?d=123", blueprint.url)
+        assertEquals("https://web.ligaudio.ru/", blueprint.refererUrl)
+    }
+
+    @Test
+    fun encodesSearchQueryForPathSegments() {
+        val encoded = MusicSourceCatalog.encodedPathSegment("aleks ataman")
+        assertEquals("aleks%20ataman", encoded)
+        assertTrue(!encoded.contains("+"))
     }
 }
