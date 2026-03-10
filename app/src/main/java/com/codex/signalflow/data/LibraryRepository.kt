@@ -171,6 +171,24 @@ class LibraryRepository(
         )
     }
 
+    suspend fun deleteTrack(trackId: String): Boolean = withContext(Dispatchers.IO) {
+        val track = snapshot.value.tracks.firstOrNull { it.id == trackId } ?: return@withContext false
+        val deletedFromStorage = deletePersistedAudio(track)
+        mutate { current ->
+            current.copy(
+                tracks = current.tracks.filterNot { it.id == trackId },
+                playlists = current.playlists.map { playlist ->
+                    playlist.copy(trackIds = playlist.trackIds.filterNot { it == trackId })
+                },
+            )
+        }
+        logDebug(
+            stage = "delete",
+            message = "trackId=$trackId deletedFromStorage=$deletedFromStorage uri=${track.uri}",
+        )
+        true
+    }
+
     private suspend fun mutate(transform: (LibrarySnapshot) -> LibrarySnapshot): LibrarySnapshot = mutex.withLock {
         val base = if (_snapshot.value == LibrarySnapshot() && storageFile.exists()) {
             readSnapshot()
@@ -192,6 +210,21 @@ class LibraryRepository(
         return runCatching {
             json.decodeFromString(LibrarySnapshot.serializer(), storageFile.readText())
         }.getOrDefault(LibrarySnapshot())
+    }
+
+    private fun deletePersistedAudio(track: TrackRecord): Boolean {
+        val playbackUri = runCatching { Uri.parse(track.uri) }.getOrNull() ?: return false
+        return when (playbackUri.scheme?.lowercase()) {
+            "content" -> runCatching {
+                context.contentResolver.delete(playbackUri, null, null) > 0
+            }.getOrDefault(false)
+
+            "file" -> runCatching {
+                File(requireNotNull(playbackUri.path)).delete()
+            }.getOrDefault(false)
+
+            else -> false
+        }
     }
 
     private fun copyAudioToDeviceStorage(

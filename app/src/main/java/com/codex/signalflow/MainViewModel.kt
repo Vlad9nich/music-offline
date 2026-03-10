@@ -198,6 +198,35 @@ class MainViewModel(
     fun seekTo(positionMs: Long) = playbackManager.seekTo(positionMs)
     fun setVisualizerActive(active: Boolean) = playbackManager.setVisualizerActive(active)
     fun setVisualizerPermissionGranted(granted: Boolean) = playbackManager.setVisualizerPermissionGranted(granted)
+    fun deleteLocalTrack(trackId: String) {
+        viewModelScope.launch {
+            val deleted = repository.deleteTrack(trackId)
+            playbackManager.removeTrack(trackId)
+            snackbar.value = if (deleted) "Трек удален с устройства." else "Трек уже отсутствует."
+        }
+    }
+
+    fun previewRemoteTrack(track: RemoteTrackCandidate) {
+        viewModelScope.launch {
+            try {
+                val blueprint = sourceCatalog.resolve(track)
+                playbackManager.playPreview(
+                    TrackRecord(
+                        id = "preview:${track.stableKey()}",
+                        uri = blueprint.url,
+                        sourceUri = blueprint.url,
+                        title = blueprint.title,
+                        artist = blueprint.artist,
+                        durationMs = 0L,
+                        importedAtEpochMs = System.currentTimeMillis(),
+                    ),
+                )
+            } catch (error: Throwable) {
+                snackbar.value = LibraryRepository.toUserFacingMessage(error, "Не удалось открыть предпрослушивание.")
+                Log.e(TAG, "previewRemoteTrack failed key=${track.stableKey()} reason=${LibraryRepository.describeThrowable(error)}", error)
+            }
+        }
+    }
 
     fun searchSources(rawQuery: String) {
         viewModelScope.launch {

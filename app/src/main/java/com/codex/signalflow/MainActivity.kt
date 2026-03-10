@@ -80,7 +80,9 @@ class MainActivity : ComponentActivity() {
                     },
                     onSearchSources = { query -> viewModel.searchSources(query) },
                     onPlayPlaylistTrack = viewModel::playTrackFromSelectedPlaylist,
+                    onPreviewRemoteTrack = viewModel::previewRemoteTrack,
                     onDownloadRemoteTrack = viewModel::downloadRemoteTrack,
+                    onDeleteLocalTrack = viewModel::deleteLocalTrack,
                 )
             }
         }

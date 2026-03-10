@@ -8,6 +8,7 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -25,10 +26,12 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -43,7 +46,9 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material.icons.rounded.FileDownload
@@ -53,6 +58,7 @@ import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PlayArrow
+import androidx.compose.material.icons.rounded.PlayCircleOutline
 import androidx.compose.material.icons.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.QueueMusic
 import androidx.compose.material.icons.rounded.Search
@@ -82,10 +88,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -147,7 +158,9 @@ fun SignalFlowApp(
     onRequestVisualizerPermission: () -> Unit,
     onSearchSources: (String) -> Unit,
     onPlayPlaylistTrack: (String) -> Unit,
+    onPreviewRemoteTrack: (RemoteTrackCandidate) -> Unit,
     onDownloadRemoteTrack: (RemoteTrackCandidate) -> Unit,
+    onDeleteLocalTrack: (String) -> Unit,
 ) {
     var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var isExpandedPlayerOpen by rememberSaveable { mutableStateOf(false) }
@@ -230,12 +243,17 @@ fun SignalFlowApp(
                             onImportTracks = onImportTracks,
                             onPlayPlaylist = onPlayPlaylist,
                             onShufflePlaylist = onShufflePlaylist,
+                            onOpenParser = { currentTab = AppTab.Search },
+                            onOpenLocal = { currentTab = AppTab.Local },
+                            onOpenPlaylists = { currentTab = AppTab.Playlists },
                         )
 
                         AppTab.Search -> ParserSearchScreen(
                             uiState = uiState,
+                            playerState = playerState,
                             onSourceQueryChange = onSourceQueryChange,
                             onSearchSources = onSearchSources,
+                            onPreviewRemoteTrack = onPreviewRemoteTrack,
                             onDownloadRemoteTrack = onDownloadRemoteTrack,
                         )
 
@@ -245,6 +263,7 @@ fun SignalFlowApp(
                             onLibraryQueryChange = onLibraryQueryChange,
                             onAddTrackToPlaylist = onAddTrackToPlaylist,
                             onPlayTrack = onPlayTrack,
+                            onDeleteTrack = onDeleteLocalTrack,
                         )
 
                         AppTab.Playlists -> PlaylistsScreen(
@@ -415,8 +434,13 @@ private fun HomeScreen(
     onImportTracks: () -> Unit,
     onPlayPlaylist: () -> Unit,
     onShufflePlaylist: () -> Unit,
+    onOpenParser: () -> Unit,
+    onOpenLocal: () -> Unit,
+    onOpenPlaylists: () -> Unit,
 ) {
     val listState = rememberLazyListState()
+    val localPreview = uiState.tracks.take(4)
+    val playlistPreview = uiState.selectedPlaylistTracks.take(4)
 
     ScreenColumn(
         state = listState,
@@ -435,6 +459,37 @@ private fun HomeScreen(
                     PrimaryActionButton(label = "Импорт", icon = Icons.Rounded.FolderOpen, onClick = onImportTracks)
                     SecondaryActionButton(label = "Пуск", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
                     SecondaryActionButton(label = "Шафл", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
+                }
+            }
+        }
+        item {
+            SectionLabel("Быстрый доступ")
+        }
+        item {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item {
+                    PortalCard(
+                        title = "Парсер",
+                        caption = if (uiState.sourceResults.isEmpty()) uiState.sourceStatus else "Найдено ${uiState.sourceResults.size} треков",
+                        accent = NeonCyan,
+                        onClick = onOpenParser,
+                    )
+                }
+                item {
+                    PortalCard(
+                        title = "Локальные",
+                        caption = "Треков: ${uiState.tracks.size}",
+                        accent = NeonPink,
+                        onClick = onOpenLocal,
+                    )
+                }
+                item {
+                    PortalCard(
+                        title = "Плейлисты",
+                        caption = uiState.selectedPlaylistName,
+                        accent = AcidLime,
+                        onClick = onOpenPlaylists,
+                    )
                 }
             }
         }
@@ -467,23 +522,54 @@ private fun HomeScreen(
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
-                    text = playerState.currentTrack?.artist ?: "Выберите трек в локальной медиатеке или плейлисте",
+                    text = playerState.currentTrack?.artist ?: "Откройте медиатеку, парсер или плейлист для старта.",
                     color = MutedText,
                 )
             }
         }
         item {
-            PanelCard(title = "Текущий плейлист", accent = NeonPink) {
+            PanelCard(title = "Навигация по библиотеке", accent = NeonPink) {
                 Text(
-                    text = uiState.selectedPlaylistName,
-                    color = InkText,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Треков в очереди: ${uiState.selectedPlaylistTracks.size}",
+                    text = "Главная собирает срезы всех вкладок: локальные треки, активный плейлист и статус поиска.",
                     color = MutedText,
+                )
+            }
+        }
+        item {
+            SectionLabel("Активный плейлист")
+        }
+        if (playlistPreview.isEmpty()) {
+            item {
+                EmptyBlock(
+                    title = "Плейлист пуст",
+                    body = "Откройте вкладку плейлистов и выберите или создайте подборку.",
+                )
+            }
+        } else {
+            items(playlistPreview, key = { "playlist_preview_${it.id}" }) { track ->
+                CompactTrackCard(
+                    track = track,
+                    accent = NeonPink,
+                    meta = uiState.selectedPlaylistName,
+                )
+            }
+        }
+        item {
+            SectionLabel("Локальные треки")
+        }
+        if (localPreview.isEmpty()) {
+            item {
+                EmptyBlock(
+                    title = "Медиатека пуста",
+                    body = "Импортируйте локальные аудиофайлы, чтобы заполнить домашний экран.",
+                )
+            }
+        } else {
+            items(localPreview, key = { "local_preview_${it.id}" }) { track ->
+                CompactTrackCard(
+                    track = track,
+                    accent = NeonCyan,
+                    meta = "Офлайн-библиотека",
                 )
             }
         }
@@ -493,8 +579,10 @@ private fun HomeScreen(
 @Composable
 private fun ParserSearchScreen(
     uiState: MainUiState,
+    playerState: PlayerUiState,
     onSourceQueryChange: (String) -> Unit,
     onSearchSources: (String) -> Unit,
+    onPreviewRemoteTrack: (RemoteTrackCandidate) -> Unit,
     onDownloadRemoteTrack: (RemoteTrackCandidate) -> Unit,
 ) {
     var queryDraft by rememberSaveable(uiState.sourceQuery) { mutableStateOf(uiState.sourceQuery) }
@@ -533,7 +621,9 @@ private fun ParserSearchScreen(
             items(uiState.sourceResults, key = { it.stableKey() }) { result ->
                 RemoteTrackRow(
                     result = result,
+                    isPreviewing = playerState.currentTrack?.id == "preview:${result.stableKey()}",
                     isDownloading = result.stableKey() in uiState.downloadingTrackKeys,
+                    onPreview = { onPreviewRemoteTrack(result) },
                     onDownload = { onDownloadRemoteTrack(result) },
                 )
             }
@@ -548,6 +638,7 @@ private fun LocalLibraryScreen(
     onLibraryQueryChange: (String) -> Unit,
     onAddTrackToPlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
+    onDeleteTrack: (String) -> Unit,
 ) {
     val listState = rememberLazyListState()
 
@@ -593,6 +684,9 @@ private fun LocalLibraryScreen(
                     secondaryLabel = "В плейлист",
                     onPrimary = { onPlayTrack(track.id) },
                     onSecondary = { onAddTrackToPlaylist(track.id) },
+                    tertiaryIcon = Icons.Rounded.Delete,
+                    tertiaryLabel = "Удалить",
+                    onTertiary = { onDeleteTrack(track.id) },
                 )
             }
         }
@@ -610,37 +704,58 @@ private fun PlaylistsScreen(
     onPlayTrack: (String) -> Unit,
 ) {
     var draftName by rememberSaveable { mutableStateOf("") }
+    var isDetailOpen by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf(false) }
+    var playlistQuery by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf("") }
+    var selectedArtist by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    val authorFilters = remember(uiState.selectedPlaylistTracks) {
+        uiState.selectedPlaylistTracks.map { it.artist }.distinct().sorted()
+    }
+    val filteredPlaylistTracks = remember(uiState.selectedPlaylistTracks, playlistQuery, selectedArtist) {
+        uiState.selectedPlaylistTracks.filter { track ->
+            val matchesQuery = playlistQuery.isBlank() ||
+                track.title.contains(playlistQuery, ignoreCase = true) ||
+                track.artist.contains(playlistQuery, ignoreCase = true)
+            val matchesArtist = selectedArtist == null || track.artist == selectedArtist
+            matchesQuery && matchesArtist
+        }
+    }
+
+    BackHandler(enabled = isDetailOpen) {
+        isDetailOpen = false
+    }
 
     ScreenColumn(
         state = listState,
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 160.dp, top = 8.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        item {
-            PanelCard(title = "Новый плейлист", accent = NeonCyan) {
-                CyberTextField(
-                    value = draftName,
-                    onValueChange = { draftName = it },
-                    placeholder = "Название плейлиста",
-                    imeAction = ImeAction.Done,
-                )
-                Spacer(Modifier.height(12.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    PrimaryActionButton(
-                        modifier = Modifier.weight(1f),
-                        label = "Создать",
-                        icon = Icons.Rounded.Add,
-                        onClick = {
-                            onCreatePlaylist(draftName)
-                            draftName = ""
-                        },
+        if (!isDetailOpen) {
+            item {
+                PanelCard(title = "Новый плейлист", accent = NeonCyan) {
+                    CyberTextField(
+                        value = draftName,
+                        onValueChange = { draftName = it },
+                        placeholder = "Название плейлиста",
+                        imeAction = ImeAction.Done,
                     )
-                    SecondaryActionButton(label = "Пуск", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
-                    SecondaryActionButton(label = "Шафл", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        PrimaryActionButton(
+                            modifier = Modifier.weight(1f),
+                            label = "Создать",
+                            icon = Icons.Rounded.Add,
+                            onClick = {
+                                onCreatePlaylist(draftName)
+                                draftName = ""
+                            },
+                        )
+                        SecondaryActionButton(label = "Пуск", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
+                        SecondaryActionButton(label = "Шафл", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
+                    }
                 }
             }
         }
@@ -656,39 +771,99 @@ private fun PlaylistsScreen(
                         PlaylistChip(
                             playlist = playlist,
                             selected = playlist.id == uiState.selectedPlaylistId,
-                            onClick = { onSelectPlaylist(playlist.id) },
+                            onClick = {
+                                onSelectPlaylist(playlist.id)
+                                isDetailOpen = true
+                                playlistQuery = ""
+                                selectedArtist = null
+                            },
                         )
                     }
                 }
             }
         }
-        item {
-            PanelCard(title = "Активный плейлист", accent = NeonPink) {
-                Text(uiState.selectedPlaylistName, color = InkText, fontWeight = FontWeight.Bold)
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "Треков: ${uiState.selectedPlaylistTracks.size}",
-                    color = MutedText,
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        if (uiState.selectedPlaylistTracks.isEmpty()) {
+        if (!isDetailOpen) {
             item {
-                EmptyBlock(
-                    title = "Плейлист пуст",
-                    body = "Добавьте треки из локальной медиатеки или через импорт файлов.",
-                )
+                PanelCard(title = "Активный плейлист", accent = NeonPink) {
+                    Text(uiState.selectedPlaylistName, color = InkText, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = "Треков: ${uiState.selectedPlaylistTracks.size}",
+                        color = MutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Нажмите на плейлист выше, чтобы открыть отдельный экран с поиском и фильтром по авторам.",
+                        color = MutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
             }
         } else {
-            items(uiState.selectedPlaylistTracks, key = { it.id }) { track ->
-                TrackRow(
-                    track = track,
-                    primaryLabel = "Пуск",
-                    secondaryLabel = "Убрать",
-                    onPrimary = { onPlayTrack(track.id) },
-                    onSecondary = { onRemoveTrackFromPlaylist(track.id) },
-                )
+            item {
+                PanelCard(title = "Плейлист", accent = NeonPink) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SecondaryActionButton(
+                            label = "К списку",
+                            icon = Icons.Rounded.ArrowBack,
+                            onClick = { isDetailOpen = false },
+                            compact = true,
+                        )
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(uiState.selectedPlaylistName, color = InkText, fontWeight = FontWeight.Bold)
+                            Text("Треков: ${uiState.selectedPlaylistTracks.size}", color = MutedText, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    CyberTextField(
+                        value = playlistQuery,
+                        onValueChange = { playlistQuery = it },
+                        placeholder = "Поиск внутри плейлиста",
+                        imeAction = ImeAction.Search,
+                    )
+                    if (authorFilters.isNotEmpty()) {
+                        Spacer(Modifier.height(12.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            item {
+                                FilterChip(
+                                    label = "Все",
+                                    selected = selectedArtist == null,
+                                    onClick = { selectedArtist = null },
+                                )
+                            }
+                            items(authorFilters, key = { it }) { artist ->
+                                FilterChip(
+                                    label = artist,
+                                    selected = selectedArtist == artist,
+                                    onClick = { selectedArtist = if (selectedArtist == artist) null else artist },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            if (filteredPlaylistTracks.isEmpty()) {
+                item {
+                    EmptyBlock(
+                        title = "Ничего не найдено",
+                        body = "Измените поиск или снимите фильтр по автору.",
+                    )
+                }
+            } else {
+                items(filteredPlaylistTracks, key = { it.id }) { track ->
+                    TrackRow(
+                        track = track,
+                        primaryLabel = "Пуск",
+                        secondaryLabel = "Убрать",
+                        onPrimary = { onPlayTrack(track.id) },
+                        onSecondary = { onRemoveTrackFromPlaylist(track.id) },
+                    )
+                }
             }
         }
     }
@@ -807,7 +982,9 @@ private fun ExpandedPlayerOverlay(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 24.dp, vertical = 28.dp),
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(horizontal = 24.dp, vertical = 18.dp),
             verticalArrangement = Arrangement.spacedBy(22.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -870,7 +1047,9 @@ private fun ExpandedPlayerOverlay(
             Spacer(modifier = Modifier.weight(0.3f))
 
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 48.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -972,45 +1151,136 @@ private fun CyberVisualizer(
     isPlaying: Boolean,
     isUsingFallback: Boolean,
 ) {
+    val accent = if (isUsingFallback) Color(0xFFFF7AA7) else Color(0xFFFF5C84)
+    val highlight = if (isUsingFallback) Color(0xFFFFD6E5) else Color(0xFFFFF3F7)
+    val frameGlow = if (isUsingFallback) NeonPink else NeonCyan
+    val normalizedBars = if (bars.isEmpty()) List(VisualizerUiState.BAR_COUNT) { 0.16f } else bars
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(36.dp))
             .background(PanelFillAlt)
-            .border(1.dp, NeonCyan.copy(alpha = 0.32f), RoundedCornerShape(36.dp)),
+            .border(1.dp, frameGlow.copy(alpha = 0.32f), RoundedCornerShape(36.dp)),
         contentAlignment = Alignment.Center,
     ) {
         GlowOrb(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(220.dp),
-            color = NeonPink.copy(alpha = if (isPlaying) 0.18f else 0.1f),
-            secondaryColor = NeonCyan.copy(alpha = 0.16f),
+            color = accent.copy(alpha = if (isPlaying) 0.22f else 0.12f),
+            secondaryColor = NeonCyan.copy(alpha = 0.14f),
         )
-        Row(
+        Canvas(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 24.dp, vertical = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.Bottom,
+                .height(220.dp)
+                .padding(horizontal = 18.dp, vertical = 18.dp),
         ) {
-            bars.forEachIndexed { index, baseHeight ->
-                Box(
-                    modifier = Modifier
-                        .width(10.dp)
-                        .height((160f * baseHeight.coerceIn(0.12f, 1f)).dp)
-                        .offset(y = if (index % 2 == 0) 8.dp else 0.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(
-                            Brush.verticalGradient(
-                                colors = listOf(NeonCyan, NeonPink, Color(0xFFFFB36A)),
-                            ),
+            val width = size.width
+            val height = size.height
+            val centerY = height / 2f
+            val leftEdge = width * 0.06f
+            val usableWidth = width * 0.88f
+            val step = usableWidth / normalizedBars.size.coerceAtLeast(1)
+            val barWidth = (step * 0.68f).coerceAtLeast(6f)
+            val waveformPath = Path()
+            val mirroredPath = Path()
+
+            drawLine(
+                color = NeonCyan.copy(alpha = 0.16f),
+                start = Offset(leftEdge, centerY),
+                end = Offset(leftEdge + usableWidth, centerY),
+                strokeWidth = 2f,
+                cap = StrokeCap.Round,
+            )
+
+            normalizedBars.forEachIndexed { index, sample ->
+                val amplitude = sample.coerceIn(0.08f, 1f)
+                val x = leftEdge + index * step + (step - barWidth) / 2f
+                val distanceFromCenter = kotlin.math.abs(index - (normalizedBars.lastIndex / 2f)) / (normalizedBars.size / 2f).coerceAtLeast(1f)
+                val envelope = 1f - distanceFromCenter * 0.42f
+                val barHeight = (height * 0.36f * amplitude * envelope.coerceAtLeast(0.58f)).coerceAtLeast(10f)
+                val glowHeight = barHeight * if (isPlaying) 1.28f else 1.08f
+
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            accent.copy(alpha = 0.22f),
+                            Color(0xFFFF344E).copy(alpha = 0.14f),
                         ),
+                    ),
+                    topLeft = Offset(x, centerY - glowHeight),
+                    size = Size(barWidth, glowHeight * 2f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth, barWidth),
                 )
+                drawRoundRect(
+                    brush = Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFFFF3047),
+                            accent,
+                            highlight,
+                            accent,
+                            Color(0xFFFF3047),
+                        ),
+                    ),
+                    topLeft = Offset(x, centerY - barHeight),
+                    size = Size(barWidth, barHeight * 2f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth, barWidth),
+                )
+
+                val anchorX = x + barWidth / 2f
+                val topY = centerY - barHeight * 0.58f
+                val bottomY = centerY + barHeight * 0.58f
+                if (index == 0) {
+                    waveformPath.moveTo(anchorX, topY)
+                    mirroredPath.moveTo(anchorX, bottomY)
+                } else {
+                    waveformPath.lineTo(anchorX, topY)
+                    mirroredPath.lineTo(anchorX, bottomY)
+                }
             }
+
+            drawPath(
+                path = waveformPath,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color(0x44FF5C84),
+                        highlight,
+                        Color(0x66FF5C84),
+                    ),
+                ),
+                style = Stroke(width = 3f, cap = StrokeCap.Round),
+            )
+            drawPath(
+                path = mirroredPath,
+                brush = Brush.horizontalGradient(
+                    colors = listOf(
+                        Color(0x33FF5C84),
+                        accent.copy(alpha = 0.84f),
+                        Color(0x22FF5C84),
+                    ),
+                ),
+                style = Stroke(width = 2f, cap = StrokeCap.Round),
+            )
+
+            val haloRadius = if (isPlaying) height * 0.18f else height * 0.12f
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(
+                        highlight.copy(alpha = 0.32f),
+                        accent.copy(alpha = 0.16f),
+                        Color.Transparent,
+                    ),
+                    center = Offset(width / 2f, centerY),
+                    radius = haloRadius,
+                ),
+                radius = haloRadius,
+                center = Offset(width / 2f, centerY),
+            )
         }
         Text(
-            text = if (isUsingFallback) "Локальный импульс" else "Аудио-сигнал",
-            color = if (isUsingFallback) MutedText else AcidLime,
+            text = if (isUsingFallback) "Локальный импульс" else "Спектр потока",
+            color = if (isUsingFallback) MutedText else highlight,
             style = MaterialTheme.typography.labelSmall,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
@@ -1150,6 +1420,9 @@ private fun TrackRow(
     secondaryLabel: String,
     onPrimary: () -> Unit,
     onSecondary: () -> Unit,
+    tertiaryIcon: ImageVector? = null,
+    tertiaryLabel: String? = null,
+    onTertiary: (() -> Unit)? = null,
 ) {
     PanelCard(title = "Трек", accent = NeonPink) {
         Column(
@@ -1174,6 +1447,7 @@ private fun TrackRow(
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 SecondaryActionButton(
                     label = primaryLabel,
@@ -1187,6 +1461,16 @@ private fun TrackRow(
                     onClick = onSecondary,
                     compact = true,
                 )
+                if (tertiaryIcon != null && tertiaryLabel != null && onTertiary != null) {
+                    ActionIconButton(
+                        icon = tertiaryIcon,
+                        contentDescription = tertiaryLabel,
+                        enabled = true,
+                        active = false,
+                        accent = NeonPink,
+                        onClick = onTertiary,
+                    )
+                }
             }
         }
     }
@@ -1215,9 +1499,123 @@ private fun PlaylistChip(
 }
 
 @Composable
+private fun FilterChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    Box(
+        modifier = Modifier
+            .clip(InputShape)
+            .background(if (selected) NeonCyan.copy(alpha = 0.16f) else PanelFillAlt)
+            .border(1.dp, if (selected) NeonCyan else NeonPink.copy(alpha = 0.24f), InputShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 9.dp),
+    ) {
+        Text(
+            text = label,
+            color = if (selected) InkText else MutedText,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            style = MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+@Composable
+private fun SectionLabel(title: String) {
+    Text(
+        text = title,
+        color = InkText,
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 2.dp),
+    )
+}
+
+@Composable
+private fun PortalCard(
+    title: String,
+    caption: String,
+    accent: Color,
+    onClick: () -> Unit,
+) {
+    Card(
+        modifier = Modifier
+            .width(228.dp)
+            .clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = PanelFill),
+        shape = PanelShape,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.32f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(title, color = accent, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = caption,
+                color = InkText,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactTrackCard(
+    track: TrackRecord,
+    accent: Color,
+    meta: String,
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = PanelFill),
+        shape = PanelShape,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = track.title,
+                color = InkText,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = track.artist,
+                color = MutedText,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = meta,
+                color = accent,
+                style = MaterialTheme.typography.labelSmall,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+    }
+}
+
+@Composable
 private fun RemoteTrackRow(
     result: RemoteTrackCandidate,
+    isPreviewing: Boolean,
     isDownloading: Boolean,
+    onPreview: () -> Unit,
     onDownload: () -> Unit,
 ) {
     PanelCard(title = "Найденный трек", accent = NeonCyan) {
@@ -1248,11 +1646,24 @@ private fun RemoteTrackRow(
                 }
             }
             Spacer(Modifier.width(12.dp))
-            DownloadIconButton(
-                enabled = result.downloadUrl != null && !isDownloading,
-                active = result.downloadUrl != null,
-                onClick = onDownload,
-            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                ActionIconButton(
+                    icon = Icons.Rounded.PlayCircleOutline,
+                    contentDescription = "Предпрослушивание",
+                    enabled = !isDownloading,
+                    active = isPreviewing,
+                    accent = NeonCyan,
+                    onClick = onPreview,
+                )
+                ActionIconButton(
+                    icon = Icons.Rounded.FileDownload,
+                    contentDescription = "Скачать",
+                    enabled = result.downloadUrl != null && !isDownloading,
+                    active = result.downloadUrl != null,
+                    accent = NeonPink,
+                    onClick = onDownload,
+                )
+            }
         }
     }
 }
@@ -1460,23 +1871,26 @@ private fun MiniControl(
 }
 
 @Composable
-private fun DownloadIconButton(
+private fun ActionIconButton(
+    icon: ImageVector,
+    contentDescription: String,
     enabled: Boolean,
     active: Boolean,
+    accent: Color,
     onClick: () -> Unit,
 ) {
     Box(
         modifier = Modifier
             .clip(InputShape)
-            .background(if (enabled) NeonPink.copy(alpha = 0.18f) else PanelFillAlt)
-            .border(1.dp, if (active) NeonPink.copy(alpha = 0.7f) else Color(0xFF1B2433), InputShape)
+            .background(if (enabled) accent.copy(alpha = 0.16f) else PanelFillAlt)
+            .border(1.dp, if (active) accent.copy(alpha = 0.7f) else Color(0xFF1B2433), InputShape)
             .clickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 12.dp),
     ) {
         Icon(
-            imageVector = Icons.Rounded.FileDownload,
-            contentDescription = "Скачать",
-            tint = if (enabled) NeonPink else MutedText,
+            imageVector = icon,
+            contentDescription = contentDescription,
+            tint = if (enabled) accent else MutedText,
             modifier = Modifier.size(20.dp),
         )
     }

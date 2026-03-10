@@ -70,7 +70,13 @@ class PlaybackManager(
         scope.launch {
             while (true) {
                 updateState()
-                delay(500)
+                delay(
+                    when {
+                        visualizerActive -> 220L
+                        player.isPlaying -> 900L
+                        else -> 1_200L
+                    },
+                )
             }
         }
     }
@@ -119,6 +125,47 @@ class PlaybackManager(
         updateState()
     }
     fun seekTo(positionMs: Long) { player.seekTo(positionMs.coerceAtLeast(0L)); updateState() }
+    fun playPreview(track: TrackRecord) {
+        playQueue(
+            label = "Предпрослушивание",
+            tracks = listOf(track),
+            startTrackId = track.id,
+            shuffle = false,
+        )
+    }
+
+    fun removeTrack(trackId: String) {
+        if (baseQueue.none { it.id == trackId } && playbackQueue.none { it.id == trackId }) return
+
+        val currentTrackId = player.currentMediaItem?.mediaId
+        val currentPlaybackIndex = player.currentMediaItemIndex.coerceAtLeast(0)
+        val playWhenReady = player.isPlaying || player.playWhenReady
+        val nextTrackId = if (currentTrackId == trackId) {
+            playbackQueue.getOrNull(currentPlaybackIndex + 1)?.id
+                ?: playbackQueue.getOrNull((currentPlaybackIndex - 1).coerceAtLeast(0))?.id
+        } else {
+            currentTrackId
+        }
+
+        baseQueue = baseQueue.filterNot { it.id == trackId }
+        if (baseQueue.isEmpty()) {
+            playbackQueue = emptyList()
+            currentQueueLabel = "Медиатека"
+            shuffleEnabled = false
+            player.stop()
+            player.clearMediaItems()
+            updateState()
+            return
+        }
+
+        rebuildPlaybackQueue(
+            currentTrackId = nextTrackId,
+            currentPositionMs = if (currentTrackId == trackId) 0L else player.currentPosition.coerceAtLeast(0L),
+            playWhenReady = playWhenReady,
+        )
+        updateState()
+    }
+
     fun setVisualizerActive(active: Boolean) {
         visualizerActive = active
         updateState()

@@ -14,6 +14,7 @@ import kotlinx.coroutines.launch
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.sin
+import kotlin.math.sqrt
 
 data class VisualizerUiState(
     val bars: List<Float> = List(BAR_COUNT) { 0.16f },
@@ -21,7 +22,7 @@ data class VisualizerUiState(
     val isActive: Boolean = false,
 ) {
     companion object {
-        const val BAR_COUNT = 20
+        const val BAR_COUNT = 28
     }
 }
 
@@ -34,6 +35,7 @@ class AudioVisualizerController {
     private var fallbackJob: Job? = null
     private var sessionId: Int = 0
     private var lastBars: List<Float> = _state.value.bars
+    private var lastFft: ByteArray = ByteArray(0)
 
     fun update(
         audioSessionId: Int,
@@ -69,7 +71,7 @@ class AudioVisualizerController {
         stopRealtime()
         sessionId = audioSessionId
 
-        val captureRate = (Visualizer.getMaxCaptureRate() / 5).coerceAtLeast(8_000)
+        val captureRate = (Visualizer.getMaxCaptureRate() / 2).coerceAtLeast(10_000)
         val captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(256)
 
         runCatching {
@@ -82,18 +84,21 @@ class AudioVisualizerController {
                             waveform: ByteArray,
                             samplingRate: Int,
                         ) {
-                            publishBars(waveformToBars(waveform), usingFallback = false, active = true)
+                            publishBars(combineRealtimeBars(waveform, lastFft), usingFallback = false, active = true)
                         }
 
                         override fun onFftDataCapture(
                             visualizer: Visualizer,
                             fft: ByteArray,
                             samplingRate: Int,
-                        ) = Unit
+                        ) {
+                            lastFft = fft
+                            publishBars(combineRealtimeBars(ByteArray(0), fft), usingFallback = false, active = true)
+                        }
                     },
                     captureRate,
                     true,
-                    false,
+                    true,
                 )
                 enabled = true
             }
@@ -117,7 +122,7 @@ class AudioVisualizerController {
                     usingFallback = true,
                     active = true,
                 )
-                delay(if (isPlaying) 70L else 220L)
+                delay(if (isPlaying) 42L else 180L)
             }
         }
     }
@@ -129,6 +134,7 @@ class AudioVisualizerController {
         }
         visualizer = null
         sessionId = 0
+        lastFft = ByteArray(0)
     }
 
     private fun stopFallback() {
@@ -153,16 +159,50 @@ class AudioVisualizerController {
         return smoothBars(bars)
     }
 
+    private fun fftToBars(fft: ByteArray): List<Float> {
+        if (fft.size < 4) return List(VisualizerUiState.BAR_COUNT) { 0.18f }
+        val pairCount = (fft.size / 2).coerceAtLeast(VisualizerUiState.BAR_COUNT)
+        val chunkSize = (pairCount / VisualizerUiState.BAR_COUNT).coerceAtLeast(1)
+        return List(VisualizerUiState.BAR_COUNT) { index ->
+            val start = index * chunkSize
+            val end = (start + chunkSize).coerceAtMost(pairCount - 1)
+            if (start >= end) return@List 0.18f
+            val magnitude = (start until end).map { pairIndex ->
+                val realIndex = pairIndex * 2
+                val imagIndex = realIndex + 1
+                val real = fft.getOrNull(realIndex)?.toInt() ?: 0
+                val imag = fft.getOrNull(imagIndex)?.toInt() ?: 0
+                sqrt((real * real + imag * imag).toFloat()) / 128f
+            }.average().toFloat()
+            magnitude.coerceIn(0.12f, 1f)
+        }
+    }
+
+    private fun combineRealtimeBars(
+        waveform: ByteArray,
+        fft: ByteArray,
+    ): List<Float> {
+        val waveformBars = waveformToBars(waveform).ifEmpty { lastBars }
+        val fftBars = fftToBars(fft)
+        return smoothBars(
+            waveformBars.mapIndexed { index, sample ->
+                val spectrum = fftBars.getOrNull(index) ?: sample
+                (sample * 0.58f + spectrum * 0.42f).coerceIn(0.12f, 1f)
+            },
+        )
+    }
+
     private fun fallbackBars(
         progressFraction: Float,
         isPlaying: Boolean,
     ): List<Float> {
         val timeSlice = System.currentTimeMillis() / if (isPlaying) 140.0 else 900.0
         val bars = List(VisualizerUiState.BAR_COUNT) { index ->
-            val wave = sin((timeSlice + index) * PI / 3.4).toFloat()
-            val pulse = sin((progressFraction * 8f + index * 0.6f) * PI).toFloat()
-            val base = if (isPlaying) 0.32f else 0.18f
-            (base + abs(wave) * 0.34f + abs(pulse) * 0.18f).coerceIn(0.12f, 0.82f)
+            val wave = sin((timeSlice + index) * PI / 3.1).toFloat()
+            val pulse = sin((progressFraction * 10f + index * 0.52f) * PI).toFloat()
+            val shimmer = sin((timeSlice * 0.45 + index * 0.22) * PI).toFloat()
+            val base = if (isPlaying) 0.28f else 0.14f
+            (base + abs(wave) * 0.28f + abs(pulse) * 0.2f + abs(shimmer) * 0.16f).coerceIn(0.12f, 0.9f)
         }
         return smoothBars(bars)
     }
@@ -170,7 +210,7 @@ class AudioVisualizerController {
     private fun smoothBars(nextBars: List<Float>): List<Float> {
         val smoothed = nextBars.mapIndexed { index, next ->
             val previous = lastBars.getOrNull(index) ?: next
-            (previous * 0.55f + next * 0.45f).coerceIn(0.12f, 1f)
+            (previous * 0.42f + next * 0.58f).coerceIn(0.12f, 1f)
         }
         lastBars = smoothed
         return smoothed
