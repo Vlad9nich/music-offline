@@ -3,6 +3,7 @@ package com.codex.signalflow
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -34,11 +35,19 @@ class MainActivity : ComponentActivity() {
                     this,
                     Manifest.permission.RECORD_AUDIO,
                 ) == PackageManager.PERMISSION_GRANTED
+                val hasNotificationPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+                    ContextCompat.checkSelfPermission(
+                        this,
+                        Manifest.permission.POST_NOTIFICATIONS,
+                    ) == PackageManager.PERMISSION_GRANTED
                 val recordAudioPermission = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
                 ) { granted ->
                     viewModel.setVisualizerPermissionGranted(granted)
                 }
+                val postNotificationsPermission = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestPermission(),
+                ) { }
                 val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
                     uris.forEach { uri ->
                         runCatching {
@@ -47,9 +56,26 @@ class MainActivity : ComponentActivity() {
                     }
                     viewModel.importTracks(uris)
                 }
+                val screenshotPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+                    uris.forEach { uri ->
+                        runCatching {
+                            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                    }
+                    viewModel.importPlaylistScreenshots(uris)
+                }
 
                 LaunchedEffect(hasVisualizerPermission) {
                     viewModel.setVisualizerPermissionGranted(hasVisualizerPermission)
+                }
+
+                LaunchedEffect(playerState.isPlaying, hasNotificationPermission) {
+                    if (playerState.isPlaying &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        !hasNotificationPermission
+                    ) {
+                        postNotificationsPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
                 }
 
                 SignalFlowApp(
@@ -59,9 +85,11 @@ class MainActivity : ComponentActivity() {
                     visualizerPermissionGranted = hasVisualizerPermission,
                     snackbarMessage = snackbarMessage,
                     onImportTracks = { picker.launch(arrayOf("audio/*")) },
+                    onImportPlaylistScreenshots = { screenshotPicker.launch(arrayOf("image/*")) },
                     onDismissSnackbar = viewModel::clearSnackbar,
                     onLibraryQueryChange = viewModel::setLibraryQuery,
                     onSourceQueryChange = viewModel::setSourceQuery,
+                    onOcrServerUrlChange = viewModel::setOcrServerUrl,
                     onSelectPlaylist = viewModel::selectPlaylist,
                     onCreatePlaylist = viewModel::createPlaylist,
                     onAddTrackToPlaylist = viewModel::addTrackToSelectedPlaylist,
@@ -83,6 +111,8 @@ class MainActivity : ComponentActivity() {
                     onPreviewRemoteTrack = viewModel::previewRemoteTrack,
                     onDownloadRemoteTrack = viewModel::downloadRemoteTrack,
                     onDeleteLocalTrack = viewModel::deleteLocalTrack,
+                    onDismissScreenshotImport = viewModel::dismissScreenshotImportSession,
+                    onAddScreenshotImportMatch = viewModel::addScreenshotImportMatch,
                 )
             }
         }

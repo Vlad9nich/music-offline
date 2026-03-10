@@ -8,7 +8,15 @@ import androidx.lifecycle.viewModelScope
 import com.codex.signalflow.data.LibraryRepository
 import com.codex.signalflow.data.PlaylistRecord
 import com.codex.signalflow.data.TrackRecord
-import com.codex.signalflow.player.PlaybackManager
+import com.codex.signalflow.importer.MatchedTrackCandidate
+import com.codex.signalflow.importer.OcrJobResponse
+import com.codex.signalflow.importer.ScreenshotImportItemStatus
+import com.codex.signalflow.importer.ScreenshotImportMatcher
+import com.codex.signalflow.importer.ScreenshotImportPhase
+import com.codex.signalflow.importer.ScreenshotImportRepository
+import com.codex.signalflow.importer.ScreenshotImportSession
+import com.codex.signalflow.importer.toRecognizedCandidate
+import com.codex.signalflow.player.PlaybackController
 import com.codex.signalflow.player.PlayerUiState
 import com.codex.signalflow.player.VisualizerUiState
 import com.codex.signalflow.source.MusicSourceCatalog
@@ -19,6 +27,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 data class MainUiState(
@@ -34,13 +43,16 @@ data class MainUiState(
     val downloadingTrackKeys: Set<String> = emptySet(),
     val sourceDescriptors: List<SourceDescriptor> = emptyList(),
     val sourceStatus: String = "Источник Ligaudio активен.",
+    val ocrServerUrl: String = "",
+    val screenshotImportSession: ScreenshotImportSession? = null,
 )
 
 class MainViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
     private val repository = LibraryRepository(application)
-    private val playbackManager = PlaybackManager(application)
+    private val screenshotImportRepository = ScreenshotImportRepository(application)
+    private val playbackController = PlaybackController(application)
     private val sourceCatalog = MusicSourceCatalog()
     private val selectedPlaylistId = MutableStateFlow<String?>(null)
     private val libraryQuery = MutableStateFlow("")
@@ -48,11 +60,13 @@ class MainViewModel(
     private val sourceResults = MutableStateFlow<List<RemoteTrackCandidate>>(emptyList())
     private val downloadingTrackKeys = MutableStateFlow<Set<String>>(emptySet())
     private val sourceStatus = MutableStateFlow("Источник Ligaudio активен.")
+    private val ocrServerUrl = MutableStateFlow(screenshotImportRepository.getServerUrl())
+    private val screenshotImportSession = MutableStateFlow<ScreenshotImportSession?>(null)
     private val snackbar = MutableStateFlow<String?>(null)
 
     val snackbarMessage: StateFlow<String?> = snackbar
-    val playerState: StateFlow<PlayerUiState> = playbackManager.playerState
-    val visualizerState: StateFlow<VisualizerUiState> = playbackManager.visualizerState
+    val playerState: StateFlow<PlayerUiState> = playbackController.playerState
+    val visualizerState: StateFlow<VisualizerUiState> = playbackController.visualizerState
 
     private val librarySelection = combine(repository.snapshot, selectedPlaylistId) { snapshot, playlistId ->
         val activePlaylist = snapshot.playlists.firstOrNull { it.id == playlistId }
@@ -60,7 +74,13 @@ class MainViewModel(
         snapshot to activePlaylist
     }
 
-    private val baseUiState = combine(librarySelection, libraryQuery, sourceQuery, sourceResults, sourceStatus) { selection, query, remoteQuery, results, sourceMessage ->
+    private val coreUiState = combine(
+        librarySelection,
+        libraryQuery,
+        sourceQuery,
+        sourceResults,
+        sourceStatus,
+    ) { selection, query, remoteQuery, results, sourceMessage ->
         val snapshot = selection.first
         val activePlaylist = selection.second
         val normalizedQuery = query.trim()
@@ -89,6 +109,13 @@ class MainViewModel(
         )
     }
 
+    private val baseUiState = combine(coreUiState, ocrServerUrl, screenshotImportSession) { state, currentOcrServerUrl, importSession ->
+        state.copy(
+            ocrServerUrl = currentOcrServerUrl,
+            screenshotImportSession = importSession,
+        )
+    }
+
     val uiState: StateFlow<MainUiState> = combine(baseUiState, downloadingTrackKeys) { state, downloadingKeys ->
         state.copy(downloadingTrackKeys = downloadingKeys)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState(sourceDescriptors = sourceCatalog.descriptors))
@@ -106,7 +133,12 @@ class MainViewModel(
 
     fun setLibraryQuery(value: String) { libraryQuery.value = value }
     fun setSourceQuery(value: String) { sourceQuery.value = value }
+    fun setOcrServerUrl(value: String) {
+        ocrServerUrl.value = value
+        screenshotImportRepository.setServerUrl(value)
+    }
     fun clearSnackbar() { snackbar.value = null }
+    fun dismissScreenshotImportSession() { screenshotImportSession.value = null }
 
     fun importTracks(uris: List<Uri>) {
         if (uris.isEmpty()) return
@@ -131,6 +163,144 @@ class MainViewModel(
     }
 
     fun selectPlaylist(playlistId: String) { selectedPlaylistId.value = playlistId }
+
+    fun importPlaylistScreenshots(uris: List<Uri>) {
+        val playlistId = selectedPlaylistId.value
+        if (playlistId == null) {
+            snackbar.value = "Сначала выберите плейлист."
+            return
+        }
+        val serverUrl = ocrServerUrl.value.trim()
+        if (serverUrl.isBlank()) {
+            snackbar.value = "Укажите адрес OCR сервера перед импортом."
+            return
+        }
+        if (uris.isEmpty()) return
+
+        val playlistName = uiState.value.selectedPlaylistName
+        screenshotImportSession.value = ScreenshotImportSession(
+            playlistId = playlistId,
+            playlistName = playlistName,
+            phase = ScreenshotImportPhase.UPLOADING,
+            totalScreenshots = uris.size,
+            statusMessage = "Подготавливаем и отправляем скриншоты...",
+        )
+
+        viewModelScope.launch {
+            try {
+                val normalizedResponse = if (uris.size == 1) {
+                    screenshotImportSession.update { session ->
+                        session?.copy(
+                            phase = ScreenshotImportPhase.RECOGNIZING,
+                            processedScreenshots = 0,
+                            totalScreenshots = 1,
+                            statusMessage = "Распознаем скриншот через vision-LLM...",
+                        )
+                    }
+                    val single = screenshotImportRepository.submitSingleImage(serverUrl, uris.first())
+                    OcrJobResponse(
+                        jobId = "single-image",
+                        status = "completed",
+                        processedFiles = 1,
+                        totalFiles = 1,
+                        candidates = single.candidates,
+                    )
+                } else {
+                    val job = screenshotImportRepository.submitJob(serverUrl, uris)
+                    screenshotImportSession.update { session ->
+                        session?.copy(
+                            phase = ScreenshotImportPhase.RECOGNIZING,
+                            statusMessage = "Скриншоты отправлены. Идет распознавание...",
+                        )
+                    }
+                    val response = screenshotImportRepository.pollJob(serverUrl, job.jobId) { progress ->
+                        updateImportProgress(progress, fallbackTotal = uris.size)
+                    }
+                    runCatching {
+                        screenshotImportSession.update { session ->
+                            session?.copy(
+                                phase = ScreenshotImportPhase.MATCHING,
+                                statusMessage = "Нормализуем названия и исполнителей...",
+                            )
+                        }
+                        val normalized = screenshotImportRepository.normalizeCandidates(serverUrl, response.candidates)
+                        response.copy(candidates = normalized.candidates)
+                    }.getOrElse { error ->
+                        Log.w(TAG, "normalizeCandidates failed reason=${LibraryRepository.describeThrowable(error)}", error)
+                        response
+                    }
+                }
+                completeImportMatching(normalizedResponse, fallbackTotal = uris.size)
+            } catch (error: Throwable) {
+                val message = LibraryRepository.toUserFacingMessage(error, "Сервис распознавания недоступен.")
+                screenshotImportSession.update { session ->
+                    session?.copy(
+                        phase = ScreenshotImportPhase.FAILED,
+                        errorMessage = message,
+                        statusMessage = message,
+                    )
+                }
+                snackbar.value = message
+                Log.e(TAG, "importPlaylistScreenshots failed reason=${LibraryRepository.describeThrowable(error)}", error)
+            }
+        }
+    }
+
+    fun addScreenshotImportMatch(candidateId: String) {
+        val session = screenshotImportSession.value ?: return
+        val item = session.items.firstOrNull { it.recognized.candidateId == candidateId } ?: return
+        val track = item.bestMatch ?: return
+        if (item.status == ScreenshotImportItemStatus.ALREADY_IN_PLAYLIST || item.status == ScreenshotImportItemStatus.ADDED) {
+            return
+        }
+
+        screenshotImportSession.update { current ->
+            current?.copy(
+                items = current.items.map { existing ->
+                    if (existing.recognized.candidateId == candidateId) {
+                        existing.copy(status = ScreenshotImportItemStatus.ADDING, message = "Добавляем в плейлист...")
+                    } else {
+                        existing
+                    }
+                },
+            )
+        }
+
+        viewModelScope.launch {
+            try {
+                val blueprint = sourceCatalog.resolve(track)
+                val importedTrack = repository.importDownloadedTrack(blueprint)
+                repository.addTrackToPlaylist(importedTrack.id, session.playlistId)
+                screenshotImportSession.update { current ->
+                    current?.copy(
+                        items = current.items.map { existing ->
+                            if (existing.recognized.candidateId == candidateId) {
+                                existing.copy(status = ScreenshotImportItemStatus.ADDED, message = "Трек добавлен в плейлист.")
+                            } else {
+                                existing
+                            }
+                        },
+                    )
+                }
+                snackbar.value = "Трек добавлен в ${session.playlistName}."
+            } catch (error: Throwable) {
+                val message = LibraryRepository.toUserFacingMessage(error, "Не удалось добавить трек.")
+                screenshotImportSession.update { current ->
+                    current?.copy(
+                        items = current.items.map { existing ->
+                            if (existing.recognized.candidateId == candidateId) {
+                                existing.copy(status = ScreenshotImportItemStatus.ADD_FAILED, message = message)
+                            } else {
+                                existing
+                            }
+                        },
+                    )
+                }
+                snackbar.value = message
+                Log.e(TAG, "addScreenshotImportMatch failed id=$candidateId reason=${LibraryRepository.describeThrowable(error)}", error)
+            }
+        }
+    }
 
     fun addTrackToSelectedPlaylist(trackId: String) {
         val playlistId = selectedPlaylistId.value
@@ -159,7 +329,7 @@ class MainViewModel(
             snackbar.value = "Сначала импортируйте локальные аудиофайлы."
             return
         }
-        playbackManager.playQueue("Локальная медиатека", queue, trackId, shuffle = false)
+        playbackController.playQueue("Локальная медиатека", queue, trackId, shuffle = false)
     }
 
     fun playTrackFromSelectedPlaylist(trackId: String) {
@@ -168,7 +338,7 @@ class MainViewModel(
             snackbar.value = "Плейлист пуст."
             return
         }
-        playbackManager.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, trackId, shuffle = false)
+        playbackController.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, trackId, shuffle = false)
     }
 
     fun playSelectedPlaylist() {
@@ -178,7 +348,7 @@ class MainViewModel(
             snackbar.value = "Плейлист пуст."
             return
         }
-        playbackManager.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, firstTrack.id, shuffle = false)
+        playbackController.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, firstTrack.id, shuffle = false)
     }
 
     fun shuffleSelectedPlaylist() {
@@ -188,20 +358,20 @@ class MainViewModel(
             snackbar.value = "Плейлист пуст."
             return
         }
-        playbackManager.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, randomTrack.id, shuffle = true)
+        playbackController.playQueue(state.selectedPlaylistName, state.selectedPlaylistTracks, randomTrack.id, shuffle = true)
     }
 
-    fun togglePlayPause() = playbackManager.togglePlayPause()
-    fun playNext() = playbackManager.playNext()
-    fun playPrevious() = playbackManager.playPrevious()
-    fun toggleShuffle() = playbackManager.toggleShuffle()
-    fun seekTo(positionMs: Long) = playbackManager.seekTo(positionMs)
-    fun setVisualizerActive(active: Boolean) = playbackManager.setVisualizerActive(active)
-    fun setVisualizerPermissionGranted(granted: Boolean) = playbackManager.setVisualizerPermissionGranted(granted)
+    fun togglePlayPause() = playbackController.togglePlayPause()
+    fun playNext() = playbackController.playNext()
+    fun playPrevious() = playbackController.playPrevious()
+    fun toggleShuffle() = playbackController.toggleShuffle()
+    fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
+    fun setVisualizerActive(active: Boolean) = playbackController.setVisualizerActive(active)
+    fun setVisualizerPermissionGranted(granted: Boolean) = playbackController.setVisualizerPermissionGranted(granted)
     fun deleteLocalTrack(trackId: String) {
         viewModelScope.launch {
             val deleted = repository.deleteTrack(trackId)
-            playbackManager.removeTrack(trackId)
+            playbackController.removeTrack(trackId)
             snackbar.value = if (deleted) "Трек удален с устройства." else "Трек уже отсутствует."
         }
     }
@@ -210,7 +380,7 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 val blueprint = sourceCatalog.resolve(track)
-                playbackManager.playPreview(
+                playbackController.playPreview(
                     TrackRecord(
                         id = "preview:${track.stableKey()}",
                         uri = blueprint.url,
@@ -280,7 +450,91 @@ class MainViewModel(
         }
     }
 
-    fun release() { playbackManager.release() }
+    fun release() = Unit
+
+    private suspend fun completeImportMatching(
+        response: OcrJobResponse,
+        fallbackTotal: Int,
+    ) {
+        val recognized = ScreenshotImportMatcher.deduplicate(response.candidates.map { it.toRecognizedCandidate() })
+        if (recognized.isEmpty()) {
+            screenshotImportSession.update { session ->
+                session?.copy(
+                    phase = ScreenshotImportPhase.COMPLETED,
+                    processedScreenshots = response.totalFiles.takeIf { it > 0 } ?: fallbackTotal,
+                    items = emptyList(),
+                    statusMessage = "OCR завершен, но треки не распознаны.",
+                )
+            }
+            return
+        }
+
+        screenshotImportSession.update { session ->
+            session?.copy(
+                phase = ScreenshotImportPhase.MATCHING,
+                processedScreenshots = response.totalFiles.takeIf { it > 0 } ?: fallbackTotal,
+                statusMessage = "Подбираем совпадения через текущий источник...",
+                items = recognized.map { candidate ->
+                    MatchedTrackCandidate(
+                        recognized = candidate,
+                        bestMatch = null,
+                        matchScore = 0f,
+                        status = ScreenshotImportItemStatus.RECOGNIZED,
+                    )
+                },
+            )
+        }
+
+        val playlistTracks = uiState.value.selectedPlaylistTracks
+        val matchedItems = recognized.mapIndexed { index, candidate ->
+            screenshotImportSession.update { session ->
+                session?.copy(
+                    statusMessage = "Матчинг треков: ${index + 1} / ${recognized.size}",
+                )
+            }
+            val results = searchCandidateMatches(candidate)
+            ScreenshotImportMatcher.pickBestMatch(candidate, results, playlistTracks)
+        }
+
+        screenshotImportSession.update { session ->
+            session?.copy(
+                phase = ScreenshotImportPhase.COMPLETED,
+                processedScreenshots = response.totalFiles.takeIf { it > 0 } ?: fallbackTotal,
+                items = matchedItems,
+                statusMessage = "Импорт завершен. Найдено совпадений: ${matchedItems.count { it.bestMatch != null }}.",
+            )
+        }
+    }
+
+    private fun updateImportProgress(
+        response: OcrJobResponse,
+        fallbackTotal: Int,
+    ) {
+        screenshotImportSession.update { session ->
+            session?.copy(
+                phase = ScreenshotImportPhase.RECOGNIZING,
+                processedScreenshots = response.processedFiles,
+                totalScreenshots = response.totalFiles.takeIf { it > 0 } ?: fallbackTotal,
+                statusMessage = when (response.status.lowercase()) {
+                    "queued" -> "Задача поставлена в очередь распознавания..."
+                    "processing" -> "Распознаем ${response.processedFiles} из ${response.totalFiles.takeIf { it > 0 } ?: fallbackTotal} скриншотов..."
+                    else -> "Идет распознавание..."
+                },
+            )
+        }
+    }
+
+    private suspend fun searchCandidateMatches(candidate: com.codex.signalflow.importer.RecognizedTrackCandidate): List<RemoteTrackCandidate> {
+        val allResults = mutableListOf<RemoteTrackCandidate>()
+        ScreenshotImportMatcher.buildSearchQueries(candidate).forEach { query ->
+            runCatching {
+                allResults += sourceCatalog.searchAll(query)
+            }.onFailure { error ->
+                Log.w(TAG, "searchCandidateMatches query=$query failed reason=${LibraryRepository.describeThrowable(error)}")
+            }
+        }
+        return allResults.distinctBy { it.stableKey() }
+    }
 
     private fun RemoteTrackCandidate.stableKey(): String = "$sourceId|$title|$artist|${downloadUrl ?: detailUrl}"
 

@@ -31,12 +31,13 @@ data class PlayerUiState(
     val hasNext: Boolean = false,
     val canSeek: Boolean = false,
     val audioSessionId: Int = 0,
+    val isNotificationVisible: Boolean = false,
 )
 
 class PlaybackManager(
     context: Context,
 ) {
-    private val player = ExoPlayer.Builder(context).build()
+    private val exoPlayer = ExoPlayer.Builder(context).build()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _playerState = MutableStateFlow(PlayerUiState())
     val playerState: StateFlow<PlayerUiState> = _playerState.asStateFlow()
@@ -47,11 +48,13 @@ class PlaybackManager(
     private var shuffleEnabled: Boolean = false
     private var visualizerActive: Boolean = false
     private var visualizerPermissionGranted: Boolean = false
+    private var notificationVisible: Boolean = false
 
     val visualizerState: StateFlow<VisualizerUiState> = audioVisualizer.state
+    val player: ExoPlayer get() = exoPlayer
 
     init {
-        player.addListener(object : Player.Listener {
+        exoPlayer.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) {
                 if (events.contains(Player.EVENT_PLAYBACK_STATE_CHANGED) &&
                     player.playbackState == Player.STATE_ENDED &&
@@ -73,7 +76,7 @@ class PlaybackManager(
                 delay(
                     when {
                         visualizerActive -> 220L
-                        player.isPlaying -> 900L
+                        exoPlayer.isPlaying -> 900L
                         else -> 1_200L
                     },
                 )
@@ -95,27 +98,27 @@ class PlaybackManager(
     }
 
     fun togglePlayPause() {
-        if (player.playbackState == Player.STATE_ENDED && playbackQueue.isNotEmpty()) {
+        if (exoPlayer.playbackState == Player.STATE_ENDED && playbackQueue.isNotEmpty()) {
             rebuildPlaybackQueue(
                 currentTrackId = if (shuffleEnabled) null else playbackQueue.firstOrNull()?.id,
                 currentPositionMs = 0L,
                 playWhenReady = true,
             )
-        } else if (player.isPlaying) {
-            player.pause()
+        } else if (exoPlayer.isPlaying) {
+            exoPlayer.pause()
         } else {
-            player.play()
+            exoPlayer.play()
         }
         updateState()
     }
 
-    fun playNext() { player.seekToNextMediaItem(); updateState() }
-    fun playPrevious() { player.seekToPreviousMediaItem(); updateState() }
+    fun playNext() { exoPlayer.seekToNextMediaItem(); updateState() }
+    fun playPrevious() { exoPlayer.seekToPreviousMediaItem(); updateState() }
     fun toggleShuffle() {
         if (baseQueue.isEmpty()) return
-        val activeTrackId = player.currentMediaItem?.mediaId ?: playbackQueue.getOrNull(player.currentMediaItemIndex)?.id
-        val activePositionMs = player.currentPosition.coerceAtLeast(0L)
-        val shouldResume = player.isPlaying || player.playWhenReady
+        val activeTrackId = exoPlayer.currentMediaItem?.mediaId ?: playbackQueue.getOrNull(exoPlayer.currentMediaItemIndex)?.id
+        val activePositionMs = exoPlayer.currentPosition.coerceAtLeast(0L)
+        val shouldResume = exoPlayer.isPlaying || exoPlayer.playWhenReady
         shuffleEnabled = !shuffleEnabled
         rebuildPlaybackQueue(
             currentTrackId = activeTrackId,
@@ -124,7 +127,7 @@ class PlaybackManager(
         )
         updateState()
     }
-    fun seekTo(positionMs: Long) { player.seekTo(positionMs.coerceAtLeast(0L)); updateState() }
+    fun seekTo(positionMs: Long) { exoPlayer.seekTo(positionMs.coerceAtLeast(0L)); updateState() }
     fun playPreview(track: TrackRecord) {
         playQueue(
             label = "Предпрослушивание",
@@ -137,9 +140,9 @@ class PlaybackManager(
     fun removeTrack(trackId: String) {
         if (baseQueue.none { it.id == trackId } && playbackQueue.none { it.id == trackId }) return
 
-        val currentTrackId = player.currentMediaItem?.mediaId
-        val currentPlaybackIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-        val playWhenReady = player.isPlaying || player.playWhenReady
+        val currentTrackId = exoPlayer.currentMediaItem?.mediaId
+        val currentPlaybackIndex = exoPlayer.currentMediaItemIndex.coerceAtLeast(0)
+        val playWhenReady = exoPlayer.isPlaying || exoPlayer.playWhenReady
         val nextTrackId = if (currentTrackId == trackId) {
             playbackQueue.getOrNull(currentPlaybackIndex + 1)?.id
                 ?: playbackQueue.getOrNull((currentPlaybackIndex - 1).coerceAtLeast(0))?.id
@@ -152,15 +155,15 @@ class PlaybackManager(
             playbackQueue = emptyList()
             currentQueueLabel = "Медиатека"
             shuffleEnabled = false
-            player.stop()
-            player.clearMediaItems()
+            exoPlayer.stop()
+            exoPlayer.clearMediaItems()
             updateState()
             return
         }
 
         rebuildPlaybackQueue(
             currentTrackId = nextTrackId,
-            currentPositionMs = if (currentTrackId == trackId) 0L else player.currentPosition.coerceAtLeast(0L),
+            currentPositionMs = if (currentTrackId == trackId) 0L else exoPlayer.currentPosition.coerceAtLeast(0L),
             playWhenReady = playWhenReady,
         )
         updateState()
@@ -179,13 +182,18 @@ class PlaybackManager(
     fun release() {
         scope.cancel()
         audioVisualizer.release()
-        player.release()
+        exoPlayer.release()
+    }
+
+    fun setNotificationVisible(visible: Boolean) {
+        notificationVisible = visible
+        updateState()
     }
 
     private fun updateState() {
-        val currentIndex = player.currentMediaItemIndex.coerceAtLeast(0)
-        val duration = player.duration.takeIf { it > 0 } ?: playbackQueue.getOrNull(currentIndex)?.durationMs ?: 0L
-        val position = player.currentPosition.coerceAtLeast(0L)
+        val currentIndex = exoPlayer.currentMediaItemIndex.coerceAtLeast(0)
+        val duration = exoPlayer.duration.takeIf { it > 0 } ?: playbackQueue.getOrNull(currentIndex)?.durationMs ?: 0L
+        val position = exoPlayer.currentPosition.coerceAtLeast(0L)
         val progressFraction = if (duration > 0L) {
             (position.toFloat() / duration.toFloat()).coerceIn(0f, 1f)
         } else {
@@ -194,7 +202,7 @@ class PlaybackManager(
         _playerState.value = PlayerUiState(
             queueLabel = currentQueueLabel,
             currentTrack = playbackQueue.getOrNull(currentIndex),
-            isPlaying = player.isPlaying,
+            isPlaying = exoPlayer.isPlaying,
             isShuffleEnabled = shuffleEnabled,
             queueSize = playbackQueue.size,
             currentIndex = currentIndex,
@@ -204,11 +212,12 @@ class PlaybackManager(
             hasPrevious = currentIndex > 0,
             hasNext = currentIndex in 0 until (playbackQueue.lastIndex),
             canSeek = duration > 0L,
-            audioSessionId = player.audioSessionId,
+            audioSessionId = exoPlayer.audioSessionId,
+            isNotificationVisible = notificationVisible,
         )
         audioVisualizer.update(
-            audioSessionId = player.audioSessionId,
-            isPlaying = player.isPlaying,
+            audioSessionId = exoPlayer.audioSessionId,
+            isPlaying = exoPlayer.isPlaying,
             isActive = visualizerActive,
             permissionGranted = visualizerPermissionGranted,
             progressFraction = progressFraction,
@@ -228,10 +237,10 @@ class PlaybackManager(
                 .setMediaMetadata(MediaMetadata.Builder().setTitle(track.title).setArtist(track.artist).build())
                 .build()
         }
-        player.setMediaItems(items, startIndex.coerceAtLeast(0), startPositionMs.coerceAtLeast(0L))
-        player.prepare()
-        player.shuffleModeEnabled = false
-        player.playWhenReady = playWhenReady
+        exoPlayer.setMediaItems(items, startIndex.coerceAtLeast(0), startPositionMs.coerceAtLeast(0L))
+        exoPlayer.prepare()
+        exoPlayer.shuffleModeEnabled = false
+        exoPlayer.playWhenReady = playWhenReady
     }
 
     private fun rebuildPlaybackQueue(

@@ -20,6 +20,9 @@ data class VisualizerUiState(
     val bars: List<Float> = List(BAR_COUNT) { 0.16f },
     val isUsingFallback: Boolean = true,
     val isActive: Boolean = false,
+    val peakIntensity: Float = 0f,
+    val bassIntensity: Float = 0f,
+    val glowPhase: Float = 0f,
 ) {
     companion object {
         const val BAR_COUNT = 28
@@ -36,6 +39,9 @@ class AudioVisualizerController {
     private var sessionId: Int = 0
     private var lastBars: List<Float> = _state.value.bars
     private var lastFft: ByteArray = ByteArray(0)
+    private var lastPeakIntensity: Float = 0f
+    private var lastBassIntensity: Float = 0f
+    private var glowPhase: Float = 0f
 
     fun update(
         audioSessionId: Int,
@@ -47,7 +53,16 @@ class AudioVisualizerController {
         if (!isActive) {
             stopRealtime()
             stopFallback()
-            publishBars(List(VisualizerUiState.BAR_COUNT) { 0.14f }, usingFallback = true, active = false)
+            publishFrame(
+                VisualizerFrame(
+                    bars = List(VisualizerUiState.BAR_COUNT) { 0.14f },
+                    peakIntensity = 0f,
+                    bassIntensity = 0f,
+                    glowPhase = glowPhase,
+                ),
+                usingFallback = true,
+                active = false,
+            )
             return
         }
 
@@ -84,7 +99,7 @@ class AudioVisualizerController {
                             waveform: ByteArray,
                             samplingRate: Int,
                         ) {
-                            publishBars(combineRealtimeBars(waveform, lastFft), usingFallback = false, active = true)
+                            publishFrame(combineRealtimeFrame(waveform, lastFft), usingFallback = false, active = true)
                         }
 
                         override fun onFftDataCapture(
@@ -93,7 +108,7 @@ class AudioVisualizerController {
                             samplingRate: Int,
                         ) {
                             lastFft = fft
-                            publishBars(combineRealtimeBars(ByteArray(0), fft), usingFallback = false, active = true)
+                            publishFrame(combineRealtimeFrame(ByteArray(0), fft), usingFallback = false, active = true)
                         }
                     },
                     captureRate,
@@ -118,11 +133,11 @@ class AudioVisualizerController {
         fallbackJob = scope.launch {
             while (true) {
                 publishBars(
-                    bars = fallbackBars(progressFraction = progressFraction, isPlaying = isPlaying),
+                    frame = fallbackFrame(progressFraction = progressFraction, isPlaying = isPlaying),
                     usingFallback = true,
                     active = true,
                 )
-                delay(if (isPlaying) 42L else 180L)
+                delay(if (isPlaying) 48L else 180L)
             }
         }
     }
@@ -192,10 +207,32 @@ class AudioVisualizerController {
         )
     }
 
-    private fun fallbackBars(
+    private fun combineRealtimeFrame(
+        waveform: ByteArray,
+        fft: ByteArray,
+    ): VisualizerFrame {
+        val bars = combineRealtimeBars(waveform, fft)
+        val lowBand = bars.take((bars.size * 0.24f).toInt().coerceAtLeast(3))
+        val upperBand = bars.drop((bars.size * 0.45f).toInt())
+        val bass = lowBand.average().toFloat().coerceIn(0f, 1f)
+        val transient = bars.maxOrNull()?.coerceIn(0f, 1f) ?: 0f
+        val vocalLift = upperBand.average().toFloat().coerceIn(0f, 1f)
+        val peak = ((transient * 0.62f) + (vocalLift * 0.38f)).coerceIn(0f, 1f)
+        glowPhase = (glowPhase + 0.18f + peak * 0.24f).rem(1f)
+        lastPeakIntensity = (lastPeakIntensity * 0.35f + peak * 0.65f).coerceIn(0f, 1f)
+        lastBassIntensity = (lastBassIntensity * 0.42f + bass * 0.58f).coerceIn(0f, 1f)
+        return VisualizerFrame(
+            bars = bars,
+            peakIntensity = lastPeakIntensity,
+            bassIntensity = lastBassIntensity,
+            glowPhase = glowPhase,
+        )
+    }
+
+    private fun fallbackFrame(
         progressFraction: Float,
         isPlaying: Boolean,
-    ): List<Float> {
+    ): VisualizerFrame {
         val timeSlice = System.currentTimeMillis() / if (isPlaying) 140.0 else 900.0
         val bars = List(VisualizerUiState.BAR_COUNT) { index ->
             val wave = sin((timeSlice + index) * PI / 3.1).toFloat()
@@ -204,7 +241,18 @@ class AudioVisualizerController {
             val base = if (isPlaying) 0.28f else 0.14f
             (base + abs(wave) * 0.28f + abs(pulse) * 0.2f + abs(shimmer) * 0.16f).coerceIn(0.12f, 0.9f)
         }
-        return smoothBars(bars)
+        val smoothedBars = smoothBars(bars)
+        val bass = smoothedBars.take((smoothedBars.size * 0.22f).toInt().coerceAtLeast(3)).average().toFloat().coerceIn(0f, 1f)
+        val peak = smoothedBars.maxOrNull()?.coerceIn(0f, 1f) ?: 0f
+        glowPhase = (glowPhase + if (isPlaying) 0.1f else 0.04f).rem(1f)
+        lastPeakIntensity = (lastPeakIntensity * 0.48f + peak * 0.52f).coerceIn(0f, 1f)
+        lastBassIntensity = (lastBassIntensity * 0.52f + bass * 0.48f).coerceIn(0f, 1f)
+        return VisualizerFrame(
+            bars = smoothedBars,
+            peakIntensity = lastPeakIntensity * 0.78f,
+            bassIntensity = lastBassIntensity * 0.82f,
+            glowPhase = glowPhase,
+        )
     }
 
     private fun smoothBars(nextBars: List<Float>): List<Float> {
@@ -217,14 +265,32 @@ class AudioVisualizerController {
     }
 
     private fun publishBars(
-        bars: List<Float>,
+        frame: VisualizerFrame,
+        usingFallback: Boolean,
+        active: Boolean,
+    ) {
+        publishFrame(frame, usingFallback, active)
+    }
+
+    private fun publishFrame(
+        frame: VisualizerFrame,
         usingFallback: Boolean,
         active: Boolean,
     ) {
         _state.value = VisualizerUiState(
-            bars = bars,
+            bars = frame.bars,
             isUsingFallback = usingFallback,
             isActive = active,
+            peakIntensity = frame.peakIntensity,
+            bassIntensity = frame.bassIntensity,
+            glowPhase = frame.glowPhase,
         )
     }
+
+    private data class VisualizerFrame(
+        val bars: List<Float>,
+        val peakIntensity: Float,
+        val bassIntensity: Float,
+        val glowPhase: Float,
+    )
 }

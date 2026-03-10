@@ -106,6 +106,10 @@ import androidx.compose.ui.unit.sp
 import com.codex.signalflow.MainUiState
 import com.codex.signalflow.data.PlaylistRecord
 import com.codex.signalflow.data.TrackRecord
+import com.codex.signalflow.importer.MatchedTrackCandidate
+import com.codex.signalflow.importer.ScreenshotImportItemStatus
+import com.codex.signalflow.importer.ScreenshotImportPhase
+import com.codex.signalflow.importer.ScreenshotImportSession
 import com.codex.signalflow.player.PlayerUiState
 import com.codex.signalflow.player.VisualizerUiState
 import com.codex.signalflow.source.RemoteTrackCandidate
@@ -139,9 +143,11 @@ fun SignalFlowApp(
     visualizerPermissionGranted: Boolean,
     snackbarMessage: String?,
     onImportTracks: () -> Unit,
+    onImportPlaylistScreenshots: () -> Unit,
     onDismissSnackbar: () -> Unit,
     onLibraryQueryChange: (String) -> Unit,
     onSourceQueryChange: (String) -> Unit,
+    onOcrServerUrlChange: (String) -> Unit,
     onSelectPlaylist: (String) -> Unit,
     onCreatePlaylist: (String) -> Unit,
     onAddTrackToPlaylist: (String) -> Unit,
@@ -161,6 +167,8 @@ fun SignalFlowApp(
     onPreviewRemoteTrack: (RemoteTrackCandidate) -> Unit,
     onDownloadRemoteTrack: (RemoteTrackCandidate) -> Unit,
     onDeleteLocalTrack: (String) -> Unit,
+    onDismissScreenshotImport: () -> Unit,
+    onAddScreenshotImportMatch: (String) -> Unit,
 ) {
     var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var isExpandedPlayerOpen by rememberSaveable { mutableStateOf(false) }
@@ -274,6 +282,10 @@ fun SignalFlowApp(
                             onShufflePlaylist = onShufflePlaylist,
                             onRemoveTrackFromPlaylist = onRemoveTrackFromPlaylist,
                             onPlayTrack = onPlayPlaylistTrack,
+                            onImportPlaylistScreenshots = onImportPlaylistScreenshots,
+                            onOcrServerUrlChange = onOcrServerUrlChange,
+                            onDismissScreenshotImport = onDismissScreenshotImport,
+                            onAddScreenshotImportMatch = onAddScreenshotImportMatch,
                         )
                     }
                 }
@@ -586,7 +598,20 @@ private fun ParserSearchScreen(
     onDownloadRemoteTrack: (RemoteTrackCandidate) -> Unit,
 ) {
     var queryDraft by rememberSaveable(uiState.sourceQuery) { mutableStateOf(uiState.sourceQuery) }
+    var selectedArtist by rememberSaveable(uiState.sourceQuery, uiState.sourceResults) { mutableStateOf<String?>(null) }
     val listState = rememberLazyListState()
+    val authorFilters = remember(uiState.sourceResults) {
+        uiState.sourceResults
+            .map { it.artist.trim() }
+            .filter { it.isNotBlank() }
+            .distinct()
+            .sorted()
+    }
+    val filteredSourceResults = remember(uiState.sourceResults, selectedArtist) {
+        uiState.sourceResults.filter { result ->
+            selectedArtist == null || result.artist.equals(selectedArtist, ignoreCase = true)
+        }
+    }
 
     ScreenColumn(
         state = listState,
@@ -608,7 +633,34 @@ private fun ParserSearchScreen(
             )
         }
         item {
-            SearchStatusStrip(status = uiState.sourceStatus, resultsCount = uiState.sourceResults.size)
+            SearchStatusStrip(
+                status = if (selectedArtist == null) {
+                    uiState.sourceStatus
+                } else {
+                    "Фильтр: $selectedArtist"
+                },
+                resultsCount = filteredSourceResults.size,
+            )
+        }
+        if (authorFilters.isNotEmpty()) {
+            item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        FilterChip(
+                            label = "Все",
+                            selected = selectedArtist == null,
+                            onClick = { selectedArtist = null },
+                        )
+                    }
+                    items(authorFilters, key = { it }) { artist ->
+                        FilterChip(
+                            label = artist,
+                            selected = selectedArtist == artist,
+                            onClick = { selectedArtist = if (selectedArtist == artist) null else artist },
+                        )
+                    }
+                }
+            }
         }
         if (uiState.sourceResults.isEmpty()) {
             item {
@@ -617,8 +669,15 @@ private fun ParserSearchScreen(
                     body = "Запустите поиск, чтобы увидеть подходящие треки из активного источника.",
                 )
             }
+        } else if (filteredSourceResults.isEmpty()) {
+            item {
+                EmptyBlock(
+                    title = "По фильтру пусто",
+                    body = "Для выбранного автора треки не найдены. Сбросьте фильтр или выберите другого автора.",
+                )
+            }
         } else {
-            items(uiState.sourceResults, key = { it.stableKey() }) { result ->
+            items(filteredSourceResults, key = { it.stableKey() }) { result ->
                 RemoteTrackRow(
                     result = result,
                     isPreviewing = playerState.currentTrack?.id == "preview:${result.stableKey()}",
@@ -702,11 +761,16 @@ private fun PlaylistsScreen(
     onShufflePlaylist: () -> Unit,
     onRemoveTrackFromPlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
+    onImportPlaylistScreenshots: () -> Unit,
+    onOcrServerUrlChange: (String) -> Unit,
+    onDismissScreenshotImport: () -> Unit,
+    onAddScreenshotImportMatch: (String) -> Unit,
 ) {
     var draftName by rememberSaveable { mutableStateOf("") }
     var isDetailOpen by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf(false) }
     var playlistQuery by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf("") }
     var selectedArtist by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf<String?>(null) }
+    var showMatchedOnly by rememberSaveable(uiState.screenshotImportSession?.playlistId) { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val authorFilters = remember(uiState.selectedPlaylistTracks) {
         uiState.selectedPlaylistTracks.map { it.artist }.distinct().sorted()
@@ -720,9 +784,22 @@ private fun PlaylistsScreen(
             matchesQuery && matchesArtist
         }
     }
+    val importSession = uiState.screenshotImportSession
+    val visibleImportItems = remember(importSession, showMatchedOnly) {
+        val items = importSession?.items.orEmpty()
+        if (showMatchedOnly) {
+            items.filter { it.bestMatch != null }
+        } else {
+            items
+        }
+    }
 
-    BackHandler(enabled = isDetailOpen) {
-        isDetailOpen = false
+    BackHandler(enabled = importSession != null || isDetailOpen) {
+        if (importSession != null) {
+            onDismissScreenshotImport()
+        } else {
+            isDetailOpen = false
+        }
     }
 
     ScreenColumn(
@@ -800,6 +877,33 @@ private fun PlaylistsScreen(
                     )
                 }
             }
+        } else if (importSession != null) {
+            item {
+                PlaylistScreenshotImportPanel(
+                    session = importSession,
+                    serverUrl = uiState.ocrServerUrl,
+                    showMatchedOnly = showMatchedOnly,
+                    onServerUrlChange = onOcrServerUrlChange,
+                    onBack = onDismissScreenshotImport,
+                    onToggleMatchedOnly = { showMatchedOnly = !showMatchedOnly },
+                    onPickScreenshots = onImportPlaylistScreenshots,
+                )
+            }
+            if (visibleImportItems.isEmpty()) {
+                item {
+                    EmptyBlock(
+                        title = "Пока пусто",
+                        body = importSession.errorMessage ?: "После распознавания здесь появятся треки для переноса.",
+                    )
+                }
+            } else {
+                items(visibleImportItems, key = { it.recognized.candidateId }) { item ->
+                    ScreenshotImportRow(
+                        item = item,
+                        onAdd = { onAddScreenshotImportMatch(item.recognized.candidateId) },
+                    )
+                }
+            }
         } else {
             item {
                 PanelCard(title = "Плейлист", accent = NeonPink) {
@@ -818,6 +922,37 @@ private fun PlaylistsScreen(
                             Text(uiState.selectedPlaylistName, color = InkText, fontWeight = FontWeight.Bold)
                             Text("Треков: ${uiState.selectedPlaylistTracks.size}", color = MutedText, style = MaterialTheme.typography.bodySmall)
                         }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Адрес OCR сервера",
+                        color = MutedText,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    CyberTextField(
+                        value = uiState.ocrServerUrl,
+                        onValueChange = onOcrServerUrlChange,
+                        placeholder = "https://your-vps.example.com",
+                        imeAction = ImeAction.Done,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SecondaryActionButton(
+                            label = "Импорт со скриншотов",
+                            icon = Icons.Rounded.Add,
+                            onClick = onImportPlaylistScreenshots,
+                            compact = true,
+                        )
+                        Text(
+                            text = "Скриншоты распознаются на VPS и затем матчатся через текущий источник.",
+                            color = MutedText,
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                     Spacer(Modifier.height(12.dp))
                     CyberTextField(
@@ -1021,6 +1156,9 @@ private fun ExpandedPlayerOverlay(
                     bars = visualizerState.bars,
                     isPlaying = state.isPlaying,
                     isUsingFallback = visualizerState.isUsingFallback,
+                    peakIntensity = visualizerState.peakIntensity,
+                    bassIntensity = visualizerState.bassIntensity,
+                    glowPhase = visualizerState.glowPhase,
                 )
                 Text(
                     text = state.currentTrack?.title ?: "Линия ожидания",
@@ -1150,6 +1288,9 @@ private fun CyberVisualizer(
     bars: List<Float>,
     isPlaying: Boolean,
     isUsingFallback: Boolean,
+    peakIntensity: Float,
+    bassIntensity: Float,
+    glowPhase: Float,
 ) {
     val accent = if (isUsingFallback) Color(0xFFFF7AA7) else Color(0xFFFF5C84)
     val highlight = if (isUsingFallback) Color(0xFFFFD6E5) else Color(0xFFFFF3F7)
@@ -1166,7 +1307,7 @@ private fun CyberVisualizer(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(220.dp),
-            color = accent.copy(alpha = if (isPlaying) 0.22f else 0.12f),
+            color = accent.copy(alpha = if (isPlaying) 0.2f + peakIntensity * 0.16f else 0.12f),
             secondaryColor = NeonCyan.copy(alpha = 0.14f),
         )
         Canvas(
@@ -1184,6 +1325,9 @@ private fun CyberVisualizer(
             val barWidth = (step * 0.68f).coerceAtLeast(6f)
             val waveformPath = Path()
             val mirroredPath = Path()
+            val centerX = width / 2f
+            val fanfareReach = width * (0.18f + peakIntensity * 0.2f)
+            val pulseAlpha = (0.22f + peakIntensity * 0.48f).coerceIn(0f, 0.8f)
 
             drawLine(
                 color = NeonCyan.copy(alpha = 0.16f),
@@ -1193,13 +1337,48 @@ private fun CyberVisualizer(
                 cap = StrokeCap.Round,
             )
 
+            repeat(4) { streakIndex ->
+                val phaseOffset = ((glowPhase + streakIndex * 0.12f) % 1f)
+                val streakShift = (phaseOffset - 0.5f) * 42f
+                val streakAlpha = (pulseAlpha - streakIndex * 0.08f).coerceAtLeast(0.06f)
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            highlight.copy(alpha = streakAlpha),
+                            accent.copy(alpha = streakAlpha * 0.86f),
+                            Color.Transparent,
+                        ),
+                    ),
+                    start = Offset(centerX - fanfareReach, centerY - 34f - streakIndex * 10f + streakShift),
+                    end = Offset(centerX + fanfareReach, centerY - 4f - streakIndex * 6f - streakShift),
+                    strokeWidth = 3.2f - streakIndex * 0.4f,
+                    cap = StrokeCap.Round,
+                )
+                drawLine(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            Color.Transparent,
+                            accent.copy(alpha = streakAlpha * 0.76f),
+                            highlight.copy(alpha = streakAlpha),
+                            Color.Transparent,
+                        ),
+                    ),
+                    start = Offset(centerX - fanfareReach, centerY + 34f + streakIndex * 10f - streakShift),
+                    end = Offset(centerX + fanfareReach, centerY + 4f + streakIndex * 6f + streakShift),
+                    strokeWidth = 3.2f - streakIndex * 0.4f,
+                    cap = StrokeCap.Round,
+                )
+            }
+
             normalizedBars.forEachIndexed { index, sample ->
                 val amplitude = sample.coerceIn(0.08f, 1f)
                 val x = leftEdge + index * step + (step - barWidth) / 2f
                 val distanceFromCenter = kotlin.math.abs(index - (normalizedBars.lastIndex / 2f)) / (normalizedBars.size / 2f).coerceAtLeast(1f)
                 val envelope = 1f - distanceFromCenter * 0.42f
-                val barHeight = (height * 0.36f * amplitude * envelope.coerceAtLeast(0.58f)).coerceAtLeast(10f)
-                val glowHeight = barHeight * if (isPlaying) 1.28f else 1.08f
+                val reactiveBoost = 1f + bassIntensity * 0.34f + peakIntensity * 0.22f
+                val barHeight = (height * 0.36f * amplitude * envelope.coerceAtLeast(0.58f) * reactiveBoost).coerceAtLeast(10f)
+                val glowHeight = barHeight * (if (isPlaying) 1.18f else 1.02f) * (1f + peakIntensity * 0.26f)
 
                 drawRoundRect(
                     brush = Brush.verticalGradient(
@@ -1267,14 +1446,14 @@ private fun CyberVisualizer(
             drawCircle(
                 brush = Brush.radialGradient(
                     colors = listOf(
-                        highlight.copy(alpha = 0.32f),
-                        accent.copy(alpha = 0.16f),
+                        highlight.copy(alpha = 0.24f + peakIntensity * 0.28f),
+                        accent.copy(alpha = 0.14f + bassIntensity * 0.18f),
                         Color.Transparent,
                     ),
                     center = Offset(width / 2f, centerY),
-                    radius = haloRadius,
+                    radius = haloRadius * (1f + peakIntensity * 0.34f),
                 ),
-                radius = haloRadius,
+                radius = haloRadius * (1f + peakIntensity * 0.34f),
                 center = Offset(width / 2f, centerY),
             )
         }
@@ -1473,6 +1652,185 @@ private fun TrackRow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun PlaylistScreenshotImportPanel(
+    session: ScreenshotImportSession,
+    serverUrl: String,
+    showMatchedOnly: Boolean,
+    onServerUrlChange: (String) -> Unit,
+    onBack: () -> Unit,
+    onToggleMatchedOnly: () -> Unit,
+    onPickScreenshots: () -> Unit,
+) {
+    PanelCard(title = "Импорт из скриншотов", accent = NeonCyan) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SecondaryActionButton(
+                label = "К плейлисту",
+                icon = Icons.Rounded.ArrowBack,
+                onClick = onBack,
+                compact = true,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(session.playlistName, color = InkText, fontWeight = FontWeight.Bold)
+                Text(
+                    text = session.statusMessage.ifBlank { "Импорт в выбранный плейлист." },
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        CyberTextField(
+            value = serverUrl,
+            onValueChange = onServerUrlChange,
+            placeholder = "https://your-vps.example.com",
+            imeAction = ImeAction.Done,
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            MetricCard(
+                modifier = Modifier.weight(1f),
+                title = "Всего",
+                value = session.totalScreenshots.toString(),
+                note = "скриншотов",
+            )
+            MetricCard(
+                modifier = Modifier.weight(1f),
+                title = "Распознано",
+                value = session.processedScreenshots.toString(),
+                note = "обработано",
+            )
+            MetricCard(
+                modifier = Modifier.weight(1f),
+                title = "Добавлено",
+                value = session.addedCount.toString(),
+                note = "в плейлист",
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            FilterChip(
+                label = if (showMatchedOnly) "Показ: найденные" else "Показ: все",
+                selected = showMatchedOnly,
+                onClick = onToggleMatchedOnly,
+            )
+            SecondaryActionButton(
+                label = "Добавить еще",
+                icon = Icons.Rounded.FolderOpen,
+                onClick = onPickScreenshots,
+                compact = true,
+            )
+        }
+        if (session.errorMessage != null) {
+            Spacer(Modifier.height(10.dp))
+            Text(
+                text = session.errorMessage,
+                color = NeonPink,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScreenshotImportRow(
+    item: MatchedTrackCandidate,
+    onAdd: () -> Unit,
+) {
+    val accent = when (item.status) {
+        ScreenshotImportItemStatus.MATCHED,
+        ScreenshotImportItemStatus.ADDED,
+        ScreenshotImportItemStatus.ALREADY_IN_PLAYLIST,
+        ScreenshotImportItemStatus.ADDING,
+        -> AcidLime
+
+        ScreenshotImportItemStatus.LOW_CONFIDENCE_MATCH -> NeonPink
+        else -> NeonCyan
+    }
+    PanelCard(title = "OCR трек", accent = accent) {
+        Column(
+            modifier = Modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Text(
+                text = item.recognized.rawText.ifBlank { listOf(item.recognized.artistGuess, item.recognized.titleGuess).joinToString(" - ") },
+                color = InkText,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = buildImportStatusText(item),
+                color = accent,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Bold,
+            )
+            if (item.recognized.artistGuess.isNotBlank() || item.recognized.titleGuess.isNotBlank()) {
+                Text(
+                    text = "OCR: ${item.recognized.artistGuess.ifBlank { "?" }} — ${item.recognized.titleGuess.ifBlank { "?" }}",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+            item.bestMatch?.let { bestMatch ->
+                Text(
+                    text = "Совпадение: ${bestMatch.artist} — ${bestMatch.title}",
+                    color = InkText,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (item.status in setOf(ScreenshotImportItemStatus.MATCHED, ScreenshotImportItemStatus.LOW_CONFIDENCE_MATCH, ScreenshotImportItemStatus.ADD_FAILED)) {
+                    SecondaryActionButton(
+                        label = if (item.status == ScreenshotImportItemStatus.ADD_FAILED) "Повторить" else "Добавить",
+                        icon = Icons.Rounded.PlaylistPlay,
+                        onClick = onAdd,
+                        compact = true,
+                    )
+                }
+                Text(
+                    text = item.message ?: "Уверенность OCR: ${(item.recognized.confidence * 100).roundToInt()}% • match ${(item.matchScore * 100).roundToInt()}%",
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+private fun buildImportStatusText(item: MatchedTrackCandidate): String {
+    return when (item.status) {
+        ScreenshotImportItemStatus.RECOGNIZED -> "Распознано"
+        ScreenshotImportItemStatus.MATCHED -> "Совпадение найдено"
+        ScreenshotImportItemStatus.LOW_CONFIDENCE_MATCH -> "Совпадение с низкой уверенностью"
+        ScreenshotImportItemStatus.OCR_ONLY -> "Нужна ручная проверка"
+        ScreenshotImportItemStatus.NOT_FOUND -> "Не найдено"
+        ScreenshotImportItemStatus.ALREADY_IN_PLAYLIST -> "Уже в плейлисте"
+        ScreenshotImportItemStatus.ADDING -> "Добавляем..."
+        ScreenshotImportItemStatus.ADDED -> "Уже добавлено"
+        ScreenshotImportItemStatus.ADD_FAILED -> "Ошибка добавления"
     }
 }
 
