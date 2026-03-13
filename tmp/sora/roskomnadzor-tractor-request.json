@@ -1,0 +1,10 @@
+{
+  "dry_run": true,
+  "request": {
+    "endpoint": "/v1/videos",
+    "model": "sora-2",
+    "prompt": "Use case: cinematic dark-comedy neo-western thriller scene\nPrimary request: an original cold, expressionless hitman-like figure in black clothing with a severe bowl-shaped haircut slowly drives a small agricultural tractor through the glass entrance of a modern government office building marked \"Roskomnadzor\"\nScene/background: modern Russian-style government office interior, rows of desks, computers, glass lobby entrance, tense institutional atmosphere\nSubject: one calm, emotionless original character on a compact tractor, surrounded by shocked office workers\nAction: the tractor slowly smashes through the lobby, rolls through desks and papers, then drives straight toward a server room and slams into a tower of blinking servers\nCamera: steady tracking shot following behind and slightly to the side of the tractor, shallow depth of field, subtle handheld feel, ultra-realistic 4K cinematic framing\nLighting/mood: dramatic overhead office lighting, sparks and flickering screens in the climax, tense dark-comedy mood\nColor palette: steel gray, cold fluorescent white, black, amber sparks, muted wood tones\nStyle/format: ultra-realistic cinematic neo-western thriller tension, dark-comedy undertone\nTiming/beats: beat 1 glass entrance breaks; beat 2 workers freeze and stare; beat 3 desks splinter under wheels and papers fly in slow motion; beat 4 tractor reaches server rack room; beat 5 impact with blinking servers, sparks and cables burst\nText (verbatim): \"Roskomnadzor\"\nConstraints: original character only, no copyrighted characters, no celebrities, no gore, no visible injuries, plausible office destruction, keep the tractor movement slow and deliberate\nAvoid: parody faces, slapstick comedy, excessive speed, cartoon motion, surreal physics, unreadable text, jitter, flicker",
+    "seconds": "8",
+    "size": "1280x720"
+  }
+}

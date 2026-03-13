@@ -35,9 +35,14 @@ class ScreenshotImportRepository(
     }
 
     fun getServerUrl(): String = preferences.getString(KEY_SERVER_URL, "").orEmpty()
+    fun getAuthToken(): String = preferences.getString(KEY_AUTH_TOKEN, "").orEmpty()
 
     fun setServerUrl(url: String) {
         preferences.edit().putString(KEY_SERVER_URL, url.trim()).apply()
+    }
+
+    fun setAuthToken(token: String) {
+        preferences.edit().putString(KEY_AUTH_TOKEN, token.trim()).apply()
     }
 
     suspend fun submitJob(
@@ -303,6 +308,9 @@ class ScreenshotImportRepository(
             readTimeout = 60_000
             setRequestProperty("User-Agent", "YaNeoDex-OCR-Import/1.0")
             setRequestProperty("Accept", "application/json")
+            getAuthToken().takeIf { it.isNotBlank() }?.let { token ->
+                setRequestProperty("Authorization", "Bearer $token")
+            }
             doInput = true
         }
     }
@@ -363,6 +371,7 @@ class ScreenshotImportRepository(
     companion object {
         private const val PREFS_NAME = "yaneodex_ocr"
         private const val KEY_SERVER_URL = "server_url"
+        private const val KEY_AUTH_TOKEN = "auth_token"
         private const val POLL_DELAY_MS = 1_200L
         private const val MAX_POLL_ATTEMPTS = 60
         private const val MAX_PREPARED_WIDTH = 1600

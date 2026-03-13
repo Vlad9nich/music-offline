@@ -44,6 +44,7 @@ data class MainUiState(
     val sourceDescriptors: List<SourceDescriptor> = emptyList(),
     val sourceStatus: String = "Источник Ligaudio активен.",
     val ocrServerUrl: String = "",
+    val ocrAuthToken: String = "",
     val screenshotImportSession: ScreenshotImportSession? = null,
 )
 
@@ -61,6 +62,7 @@ class MainViewModel(
     private val downloadingTrackKeys = MutableStateFlow<Set<String>>(emptySet())
     private val sourceStatus = MutableStateFlow("Источник Ligaudio активен.")
     private val ocrServerUrl = MutableStateFlow(screenshotImportRepository.getServerUrl())
+    private val ocrAuthToken = MutableStateFlow(screenshotImportRepository.getAuthToken())
     private val screenshotImportSession = MutableStateFlow<ScreenshotImportSession?>(null)
     private val snackbar = MutableStateFlow<String?>(null)
 
@@ -109,9 +111,10 @@ class MainViewModel(
         )
     }
 
-    private val baseUiState = combine(coreUiState, ocrServerUrl, screenshotImportSession) { state, currentOcrServerUrl, importSession ->
+    private val baseUiState = combine(coreUiState, ocrServerUrl, ocrAuthToken, screenshotImportSession) { state, currentOcrServerUrl, currentOcrAuthToken, importSession ->
         state.copy(
             ocrServerUrl = currentOcrServerUrl,
+            ocrAuthToken = currentOcrAuthToken,
             screenshotImportSession = importSession,
         )
     }
@@ -136,6 +139,10 @@ class MainViewModel(
     fun setOcrServerUrl(value: String) {
         ocrServerUrl.value = value
         screenshotImportRepository.setServerUrl(value)
+    }
+    fun setOcrAuthToken(value: String) {
+        ocrAuthToken.value = value
+        screenshotImportRepository.setAuthToken(value)
     }
     fun clearSnackbar() { snackbar.value = null }
     fun dismissScreenshotImportSession() { screenshotImportSession.value = null }

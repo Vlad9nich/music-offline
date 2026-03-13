@@ -1,361 +1,242 @@
 from __future__ import annotations
 
-import os
-import re
 import shutil
 import tempfile
-import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
-from pydantic import BaseModel
-from PIL import Image, ImageOps
-from paddleocr import PaddleOCR
+from fastapi import Depends, FastAPI, File, UploadFile
 
-app = FastAPI(title="YaNeoDex OCR Service", version="1.0.0")
-executor = ThreadPoolExecutor(max_workers=2)
-jobs_lock = threading.Lock()
-jobs: dict[str, dict[str, Any]] = {}
-ocr_engine = PaddleOCR(use_angle_cls=True, lang="ru", show_log=False)
-
-JOB_TTL_SECONDS = 3600
+from .auth import require_api_token
+from .config import Settings
+from .errors import ApiError, register_exception_handlers
+from .job_store import SqliteJobStore
+from .logging_utils import audit_log, configure_logger
+from .models import CandidateResponse, CreateJobResponse, JobResponse, OcrNormalizeRequest, OcrNormalizeResponse, OcrResponse
+from .ocr_pipeline import extract_lines, group_lines_into_candidates, normalize_candidate_fields, recognize_tracks_with_llm
+from .rate_limit import SlidingWindowRateLimiter, enforce_rate_limit
 
 
-class CreateJobResponse(BaseModel):
-    jobId: str
+def create_app(settings: Settings | None = None) -> FastAPI:
+    resolved_settings = settings or Settings.from_env()
+    logger = configure_logger()
+    store = SqliteJobStore(resolved_settings.db_path)
+    rate_limiter = SlidingWindowRateLimiter(
+        resolved_settings.rate_limit_requests,
+        resolved_settings.rate_limit_window_seconds,
+    )
 
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        resolved_settings.data_dir.mkdir(parents=True, exist_ok=True)
+        resolved_settings.jobs_dir.mkdir(parents=True, exist_ok=True)
+        app.state.executor = ThreadPoolExecutor(max_workers=2)
+        _resume_recoverable_jobs(app)
+        yield
+        app.state.executor.shutdown(wait=False, cancel_futures=False)
 
-class CandidateResponse(BaseModel):
-    candidateId: str
-    screenshotIndex: int
-    rawText: str
-    artistGuess: str
-    titleGuess: str
-    confidence: float
-    bbox: list[int] | None = None
+    app = FastAPI(title="YaNeoDex OCR Service", version="2.0.0", lifespan=lifespan)
+    app.state.settings = resolved_settings
+    app.state.logger = logger
+    app.state.job_store = store
+    app.state.rate_limiter = rate_limiter
+    register_exception_handlers(app)
 
+    @app.middleware("http")
+    async def request_audit(request, call_next):
+        request_id = uuid.uuid4().hex
+        request.state.request_id = request_id
+        cleanup_expired_jobs(app)
+        started_at = time.time()
+        audit_log(
+            logger,
+            "request_started",
+            requestId=request_id,
+            method=request.method,
+            path=request.url.path,
+            client=request.client.host if request.client else "unknown",
+        )
+        response = await call_next(request)
+        duration_ms = round((time.time() - started_at) * 1000, 2)
+        response.headers["X-Request-ID"] = request_id
+        audit_log(
+            logger,
+            "request_finished",
+            requestId=request_id,
+            method=request.method,
+            path=request.url.path,
+            status=response.status_code,
+            durationMs=duration_ms,
+        )
+        return response
 
-class JobResponse(BaseModel):
-    jobId: str
-    status: str
-    processedFiles: int = 0
-    totalFiles: int = 0
-    error: str | None = None
-    candidates: list[CandidateResponse] = []
+    protected = [Depends(require_api_token), Depends(enforce_rate_limit)]
 
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
 
-@dataclass
-class OcrLine:
-    text: str
-    confidence: float
-    bbox: list[int]
-    center_y: float
-    height: int
+    @app.post("/v1/playlist-import/jobs", response_model=CreateJobResponse, dependencies=protected)
+    async def create_job(files: list[UploadFile] = File(...)) -> CreateJobResponse:
+        if not files:
+            raise ApiError(400, "no_files_uploaded", "No files uploaded.")
 
+        job_id = uuid.uuid4().hex
+        job_dir = resolved_settings.jobs_dir / job_id
+        job_dir.mkdir(parents=True, exist_ok=True)
+        saved_files: list[str] = []
 
-@dataclass
-class OcrRow:
-    text: str
-    confidence: float
-    bbox: list[int]
-    center_y: float
-    height: int
+        try:
+            for index, upload in enumerate(files):
+                suffix = Path(upload.filename or f"shot-{index}.jpg").suffix or ".jpg"
+                target = job_dir / f"{index:03d}{suffix}"
+                target.write_bytes(await upload.read())
+                saved_files.append(str(target))
+        except Exception as error:  # noqa: BLE001
+            shutil.rmtree(job_dir, ignore_errors=True)
+            raise ApiError(500, "job_file_write_failed", "Failed to save uploaded screenshots.", {"detail": str(error)})
 
+        store.create_job(
+            job_id=job_id,
+            total_files=len(saved_files),
+            job_dir=str(job_dir),
+            source_files=saved_files,
+            expires_at=time.time() + resolved_settings.job_ttl_seconds,
+        )
+        audit_log(logger, "job_created", jobId=job_id, totalFiles=len(saved_files))
+        _submit_job_processing(app, job_id)
+        return CreateJobResponse(jobId=job_id)
 
-@app.post("/v1/playlist-import/jobs", response_model=CreateJobResponse)
-async def create_job(files: list[UploadFile] = File(...)) -> CreateJobResponse:
-    cleanup_expired_jobs()
-    if not files:
-        raise HTTPException(status_code=400, detail="No files uploaded")
-
-    job_id = uuid.uuid4().hex
-    job_dir = Path(tempfile.mkdtemp(prefix=f"yaneodex-ocr-{job_id}-"))
-    saved_files: list[Path] = []
-
-    try:
-        for index, upload in enumerate(files):
-            suffix = Path(upload.filename or f"shot-{index}.jpg").suffix or ".jpg"
-            target = job_dir / f"{index:03d}{suffix}"
-            content = await upload.read()
-            target.write_bytes(content)
-            saved_files.append(target)
-    except Exception:
-        shutil.rmtree(job_dir, ignore_errors=True)
-        raise
-
-    with jobs_lock:
-        jobs[job_id] = {
-            "jobId": job_id,
-            "status": "queued",
-            "processedFiles": 0,
-            "totalFiles": len(saved_files),
-            "error": None,
-            "candidates": [],
-            "expiresAt": time.time() + JOB_TTL_SECONDS,
-            "jobDir": str(job_dir),
-        }
-
-    executor.submit(process_job, job_id, saved_files)
-    return CreateJobResponse(jobId=job_id)
-
-
-@app.get("/v1/playlist-import/jobs/{job_id}", response_model=JobResponse)
-def get_job(job_id: str) -> JobResponse:
-    cleanup_expired_jobs()
-    with jobs_lock:
-        payload = jobs.get(job_id)
+    @app.get("/v1/playlist-import/jobs/{job_id}", response_model=JobResponse, dependencies=protected)
+    def get_job(job_id: str) -> JobResponse:
+        payload = store.get_job(job_id)
         if payload is None:
-            raise HTTPException(status_code=404, detail="Job not found")
-        return JobResponse(**{k: v for k, v in payload.items() if k != "expiresAt" and k != "jobDir"})
+            raise ApiError(404, "job_not_found", "Job not found.")
+        store.touch_job_ttl(job_id, resolved_settings.job_ttl_seconds)
+        return JobResponse(
+            jobId=payload["jobId"],
+            status=payload["status"],
+            processedFiles=payload["processedFiles"],
+            totalFiles=payload["totalFiles"],
+            error=payload["error"],
+            candidates=[CandidateResponse(**item) for item in payload["candidates"]],
+        )
+
+    @app.post("/v1/ocr", response_model=OcrNormalizeResponse, dependencies=protected)
+    def normalize_ocr(payload: OcrNormalizeRequest) -> OcrNormalizeResponse:
+        normalized = [normalize_candidate_fields(item.model_dump()) for item in payload.candidates]
+        audit_log(logger, "candidates_normalized", count=len(normalized))
+        return OcrNormalizeResponse(candidates=[CandidateResponse(**item) for item in normalized])
+
+    @app.post("/v1/ocr-image", response_model=OcrResponse, dependencies=protected)
+    async def ocr_image(file: UploadFile = File(...)) -> OcrResponse:
+        image_bytes = await file.read()
+        if not image_bytes:
+            raise ApiError(400, "empty_file", "OCR image payload is empty.")
+
+        candidates: list[dict[str, Any]]
+        try:
+            llm_result = recognize_tracks_with_llm(image_bytes, resolved_settings)
+            candidates = [normalize_candidate_fields(_coerce_candidate(item)) for item in llm_result.get("candidates", [])]
+            audit_log(logger, "single_image_llm_processed", candidates=len(candidates))
+        except Exception as error:  # noqa: BLE001
+            audit_log(logger, "single_image_llm_failed", detail=str(error))
+            candidates = []
+
+        if not candidates:
+            with tempfile.NamedTemporaryFile(prefix="ocr-shot-", suffix=".jpg", delete=False) as temp_file:
+                temp_file.write(image_bytes)
+                temp_path = Path(temp_file.name)
+            try:
+                lines = extract_lines(temp_path)
+                candidates = group_lines_into_candidates(lines, screenshot_index=0)
+                audit_log(logger, "single_image_fallback_processed", candidates=len(candidates))
+            finally:
+                temp_path.unlink(missing_ok=True)
+
+        return OcrResponse(candidates=[CandidateResponse(**item) for item in candidates])
+
+    return app
 
 
-def process_job(job_id: str, files: list[Path]) -> None:
-    update_job(job_id, status="processing", processedFiles=0, candidates=[])
-    all_candidates: list[dict[str, Any]] = []
+def _coerce_candidate(item: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "candidateId": item.get("candidateId") or uuid.uuid4().hex,
+        "screenshotIndex": int(item.get("screenshotIndex", 0) or 0),
+        "rawText": str(item.get("rawText", "")).strip(),
+        "artistGuess": str(item.get("artistGuess", "")).strip(),
+        "titleGuess": str(item.get("titleGuess", "")).strip(),
+        "confidence": float(item.get("confidence", 0.85) or 0.85),
+        "bbox": item.get("bbox"),
+    }
+
+
+def _submit_job_processing(app: FastAPI, job_id: str) -> None:
+    app.state.executor.submit(_process_job, app, job_id)
+
+
+def _resume_recoverable_jobs(app: FastAPI) -> None:
+    for payload in app.state.job_store.list_recoverable_jobs():
+        source_files = [Path(path) for path in payload.get("sourceFiles", [])]
+        if source_files and all(path.exists() for path in source_files):
+            audit_log(app.state.logger, "job_resumed", jobId=payload["jobId"], status=payload["status"])
+            _submit_job_processing(app, payload["jobId"])
+        else:
+            app.state.job_store.update_job(
+                payload["jobId"],
+                status="failed",
+                error="Source screenshot files are missing after restart.",
+            )
+
+
+def _process_job(app: FastAPI, job_id: str) -> None:
+    store: SqliteJobStore = app.state.job_store
+    settings: Settings = app.state.settings
+    logger = app.state.logger
+    payload = store.get_job(job_id)
+    if payload is None:
+        return
+
+    files = [Path(path) for path in payload.get("sourceFiles", [])]
+    store.update_job(job_id, status="processing", processed_files=0, candidates=[], error=None)
+    store.touch_job_ttl(job_id, settings.job_ttl_seconds)
+    audit_log(logger, "job_processing_started", jobId=job_id, totalFiles=len(files))
+    candidates: list[dict[str, Any]] = []
 
     try:
         for index, path in enumerate(files):
             lines = extract_lines(path)
-            grouped_candidates = group_lines_into_candidates(lines, screenshot_index=index)
-            all_candidates.extend(grouped_candidates)
-            update_job(
-                job_id,
-                status="processing",
-                processedFiles=index + 1,
-                candidates=all_candidates,
-            )
-        update_job(
-            job_id,
-            status="completed",
-            processedFiles=len(files),
-            candidates=all_candidates,
-        )
-    except Exception as error:
-        update_job(
-            job_id,
-            status="failed",
-            error=str(error),
-        )
+            grouped = group_lines_into_candidates(lines, screenshot_index=index)
+            candidates.extend(grouped)
+            store.update_job(job_id, status="processing", processed_files=index + 1, candidates=candidates)
+            store.touch_job_ttl(job_id, settings.job_ttl_seconds)
+            audit_log(logger, "job_file_processed", jobId=job_id, fileIndex=index, candidates=len(candidates))
+
+        store.update_job(job_id, status="completed", processed_files=len(files), candidates=candidates, error=None)
+        audit_log(logger, "job_completed", jobId=job_id, candidates=len(candidates))
+    except Exception as error:  # noqa: BLE001
+        store.update_job(job_id, status="failed", error=str(error))
+        audit_log(logger, "job_failed", jobId=job_id, detail=str(error))
     finally:
-        cleanup_job_files(job_id)
+        _cleanup_job_files(store, job_id)
 
 
-def extract_lines(path: Path) -> list[OcrLine]:
-    with Image.open(path) as image:
-        prepared = ImageOps.exif_transpose(image).convert("RGB")
-        prepared = ImageOps.autocontrast(prepared)
-        max_width = 1800
-        if prepared.width > max_width:
-            ratio = max_width / float(prepared.width)
-            prepared = prepared.resize((max_width, int(prepared.height * ratio)), Image.Resampling.LANCZOS)
-        prepared_path = path.with_suffix(".prepared.jpg")
-        prepared.save(prepared_path, quality=92)
-
-    try:
-        result = ocr_engine.ocr(str(prepared_path), cls=True)
-        lines: list[OcrLine] = []
-        for group in result:
-            if not group:
-                continue
-            for item in group:
-                bbox, payload = item
-                text = normalize_text(payload[0])
-                confidence = float(payload[1])
-                if len(text) < 2:
-                    continue
-                xs = [int(point[0]) for point in bbox]
-                ys = [int(point[1]) for point in bbox]
-                lines.append(
-                    OcrLine(
-                        text=text,
-                        confidence=confidence,
-                        bbox=[min(xs), min(ys), max(xs), max(ys)],
-                        center_y=(min(ys) + max(ys)) / 2.0,
-                        height=max(ys) - min(ys),
-                    )
-                )
-        return sorted(lines, key=lambda line: (line.center_y, line.bbox[0]))
-    finally:
-        prepared_path.unlink(missing_ok=True)
-
-
-def group_lines_into_candidates(lines: list[OcrLine], screenshot_index: int) -> list[dict[str, Any]]:
-    if not lines:
-        return []
-
-    rows = merge_lines_into_rows(lines)
-    if not rows:
-        return []
-
-    groups: list[list[OcrRow]] = []
-    current_group: list[OcrRow] = []
-
-    for line in rows:
-        if not current_group:
-            current_group = [line]
-            continue
-        previous = current_group[-1]
-        gap = line.center_y - previous.center_y
-        threshold = max(previous.height, line.height) * 1.6
-        if gap <= threshold:
-            current_group.append(line)
-        else:
-            groups.append(current_group)
-            current_group = [line]
-    if current_group:
-        groups.append(current_group)
-
-    candidates: list[dict[str, Any]] = []
-    for group in groups:
-        if not group:
-            continue
-        candidate = lines_to_candidate(group, screenshot_index)
-        if candidate:
-            candidates.append(candidate)
-    return candidates
-
-
-def lines_to_candidate(group: list[OcrRow], screenshot_index: int) -> dict[str, Any] | None:
-    texts = [line.text for line in group if line.text]
-    if not texts:
-        return None
-
-    primary = texts[0]
-    secondary = texts[1] if len(texts) > 1 else ""
-
-    if " - " in primary:
-        artist, title = split_artist_title(primary)
-    elif secondary:
-        title = primary
-        artist = secondary
-    else:
-        artist = ""
-        title = primary
-
-    raw_text = " | ".join(texts[:3])
-    confidence = sum(line.confidence for line in group) / len(group)
-    bbox = [
-        min(line.bbox[0] for line in group),
-        min(line.bbox[1] for line in group),
-        max(line.bbox[2] for line in group),
-        max(line.bbox[3] for line in group),
-    ]
-
-    cleaned_title = cleanup_track_fragment(title)
-    cleaned_artist = cleanup_track_fragment(artist)
-    if not cleaned_title and not cleaned_artist:
-        return None
-
-    return {
-        "candidateId": uuid.uuid4().hex,
-        "screenshotIndex": screenshot_index,
-        "rawText": raw_text,
-        "artistGuess": cleaned_artist,
-        "titleGuess": cleaned_title,
-        "confidence": round(confidence, 4),
-        "bbox": bbox,
-    }
-
-
-def merge_lines_into_rows(lines: list[OcrLine]) -> list[OcrRow]:
-    if not lines:
-        return []
-
-    rows: list[list[OcrLine]] = []
-    for line in sorted(lines, key=lambda item: (item.center_y, item.bbox[0])):
-        matching_row = None
-        best_distance = None
-        for row in rows:
-            row_center = sum(item.center_y for item in row) / len(row)
-            row_height = max(item.height for item in row)
-            distance = abs(line.center_y - row_center)
-            if distance <= max(row_height, line.height) * 0.55:
-                if best_distance is None or distance < best_distance:
-                    matching_row = row
-                    best_distance = distance
-        if matching_row is None:
-            rows.append([line])
-        else:
-            matching_row.append(line)
-
-    merged_rows: list[OcrRow] = []
-    for row in rows:
-        ordered = sorted(row, key=lambda item: item.bbox[0])
-        text = normalize_text(" ".join(item.text for item in ordered if item.text))
-        if len(text) < 2:
-            continue
-        xs = [item.bbox[0] for item in ordered] + [item.bbox[2] for item in ordered]
-        ys = [item.bbox[1] for item in ordered] + [item.bbox[3] for item in ordered]
-        merged_rows.append(
-            OcrRow(
-                text=text,
-                confidence=sum(item.confidence for item in ordered) / len(ordered),
-                bbox=[min(xs), min(ys), max(xs), max(ys)],
-                center_y=sum(item.center_y for item in ordered) / len(ordered),
-                height=max(item.height for item in ordered),
-            )
-        )
-
-    return sorted(merged_rows, key=lambda row: (row.center_y, row.bbox[0]))
-
-
-def split_artist_title(value: str) -> tuple[str, str]:
-    for delimiter in (" - ", " — ", " – "):
-        if delimiter in value:
-            artist, title = value.split(delimiter, 1)
-            return cleanup_track_fragment(artist), cleanup_track_fragment(title)
-    return "", cleanup_track_fragment(value)
-
-
-def cleanup_track_fragment(value: str) -> str:
-    return (
-        value.replace("•", " ")
-        .replace("explicit", " ")
-        .replace("E", " ")
-        .replace("\n", " ")
-        .strip(" -—–|")
-        .strip()
-    )
-
-
-def normalize_text(value: str) -> str:
-    value = value.replace("\u00a0", " ")
-    value = re.sub(r"\s+", " ", value)
-    return value.strip()
-
-
-def update_job(job_id: str, **kwargs: Any) -> None:
-    with jobs_lock:
-        if job_id not in jobs:
-            return
-        jobs[job_id].update(kwargs)
-        jobs[job_id]["expiresAt"] = time.time() + JOB_TTL_SECONDS
-
-
-def cleanup_job_files(job_id: str) -> None:
-    with jobs_lock:
-        payload = jobs.get(job_id)
-        if payload is None:
-            return
-        job_dir = payload.get("jobDir")
+def _cleanup_job_files(store: SqliteJobStore, job_id: str) -> None:
+    payload = store.get_job(job_id)
+    if payload is None:
+        return
+    job_dir = payload.get("jobDir")
     if job_dir:
         shutil.rmtree(job_dir, ignore_errors=True)
 
 
-def cleanup_expired_jobs() -> None:
-    now = time.time()
-    expired: list[str] = []
-    with jobs_lock:
-        for job_id, payload in jobs.items():
-            if payload.get("expiresAt", 0) < now:
-                expired.append(job_id)
-        for job_id in expired:
-            payload = jobs.pop(job_id, None)
-            job_dir = payload.get("jobDir") if payload else None
-            if job_dir:
-                shutil.rmtree(job_dir, ignore_errors=True)
+def cleanup_expired_jobs(app: FastAPI) -> None:
+    for job_dir in app.state.job_store.cleanup_expired_jobs():
+        shutil.rmtree(job_dir, ignore_errors=True)
+
+
+app = create_app()

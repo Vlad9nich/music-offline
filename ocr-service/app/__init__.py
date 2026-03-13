@@ -1,0 +1,1 @@
+"""YaNeoDex OCR service package."""

@@ -90,6 +90,7 @@ class MainActivity : ComponentActivity() {
                     onLibraryQueryChange = viewModel::setLibraryQuery,
                     onSourceQueryChange = viewModel::setSourceQuery,
                     onOcrServerUrlChange = viewModel::setOcrServerUrl,
+                    onOcrAuthTokenChange = viewModel::setOcrAuthToken,
                     onSelectPlaylist = viewModel::selectPlaylist,
                     onCreatePlaylist = viewModel::createPlaylist,
                     onAddTrackToPlaylist = viewModel::addTrackToSelectedPlaylist,
