@@ -48,6 +48,19 @@ data class MainUiState(
     val screenshotImportSession: ScreenshotImportSession? = null,
 )
 
+internal fun buildSelectedPlaylistTracks(
+    trackIds: List<String>,
+    allTracks: List<TrackRecord>,
+): List<TrackRecord> {
+    val tracksById = allTracks.associateBy { it.id }
+    return trackIds
+        .asSequence()
+        .distinct()
+        .mapNotNull { trackId -> tracksById[trackId] }
+        .sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() })
+        .toList()
+}
+
 class MainViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
@@ -93,8 +106,10 @@ class MainViewModel(
                     it.title.contains(normalizedQuery, ignoreCase = true) ||
                     it.artist.contains(normalizedQuery, ignoreCase = true)
             }
-        val selectedTracks = activePlaylist?.trackIds.orEmpty().mapNotNull { trackId -> snapshot.tracks.firstOrNull { it.id == trackId } }
-            .sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() })
+        val selectedTracks = buildSelectedPlaylistTracks(
+            trackIds = activePlaylist?.trackIds.orEmpty(),
+            allTracks = snapshot.tracks,
+        )
 
         MainUiState(
             tracks = snapshot.tracks.sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() }),

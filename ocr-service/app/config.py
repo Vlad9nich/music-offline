@@ -13,9 +13,9 @@ class Settings:
     auth_token: str = ""
     rate_limit_requests: int = 60
     rate_limit_window_seconds: int = 60
-    llm_url: str = "http://127.0.0.1:18789/v1/chat/completions"
+    llm_url: str = "https://openrouter.ai/api/v1/chat/completions"
     llm_token: str = ""
-    llm_model: str = "gpt-4o-mini"
+    llm_model: str = "google/gemma-3-4b-it:free"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -28,9 +28,9 @@ class Settings:
             auth_token=os.getenv("OCR_API_TOKEN", "").strip(),
             rate_limit_requests=int(os.getenv("OCR_RATE_LIMIT_REQUESTS", "60")),
             rate_limit_window_seconds=int(os.getenv("OCR_RATE_LIMIT_WINDOW_SECONDS", "60")),
-            llm_url=os.getenv("OCR_LLM_URL", "http://127.0.0.1:18789/v1/chat/completions").strip(),
+            llm_url=os.getenv("OCR_LLM_URL", "https://openrouter.ai/api/v1/chat/completions").strip(),
             llm_token=os.getenv("OCR_LLM_TOKEN", "").strip(),
-            llm_model=os.getenv("OCR_LLM_MODEL", "gpt-4o-mini").strip(),
+            llm_model=os.getenv("OCR_LLM_MODEL", "google/gemma-3-4b-it:free").strip(),
         )
 
     @property

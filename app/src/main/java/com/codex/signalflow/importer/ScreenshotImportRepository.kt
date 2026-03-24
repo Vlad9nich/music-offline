@@ -304,8 +304,9 @@ class ScreenshotImportRepository(
 
     private fun openConnection(url: String): HttpURLConnection {
         return (URL(url).openConnection() as HttpURLConnection).apply {
-            connectTimeout = 20_000
-            readTimeout = 60_000
+            // Free-tier multimodal OCR models can take 1-2+ minutes to answer.
+            connectTimeout = 30_000
+            readTimeout = 180_000
             setRequestProperty("User-Agent", "YaNeoDex-OCR-Import/1.0")
             setRequestProperty("Accept", "application/json")
             getAuthToken().takeIf { it.isNotBlank() }?.let { token ->

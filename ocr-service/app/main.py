@@ -209,8 +209,19 @@ def _process_job(app: FastAPI, job_id: str) -> None:
 
     try:
         for index, path in enumerate(files):
-            lines = extract_lines(path)
-            grouped = group_lines_into_candidates(lines, screenshot_index=index)
+            grouped: list[dict[str, Any]] = []
+            try:
+                llm_result = recognize_tracks_with_llm(path.read_bytes(), settings)
+                grouped = [normalize_candidate_fields(_coerce_candidate(item)) for item in llm_result.get("candidates", [])]
+                audit_log(logger, "job_file_llm_processed", jobId=job_id, fileIndex=index, candidates=len(grouped))
+            except Exception as error:  # noqa: BLE001
+                audit_log(logger, "job_file_llm_failed", jobId=job_id, fileIndex=index, detail=str(error))
+
+            if not grouped:
+                lines = extract_lines(path)
+                grouped = group_lines_into_candidates(lines, screenshot_index=index)
+                audit_log(logger, "job_file_fallback_processed", jobId=job_id, fileIndex=index, candidates=len(grouped))
+
             candidates.extend(grouped)
             store.update_job(job_id, status="processing", processed_files=index + 1, candidates=candidates)
             store.touch_job_ttl(job_id, settings.job_ttl_seconds)

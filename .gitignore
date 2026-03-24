@@ -21,3 +21,13 @@ app.rar
 captures/
 externalNativeBuild/
 .cxx/
+
+tmp/
+output/
+runtime/
+tmp-skill-install/
+.codex/
+.serena/
+ocr-service/data/
+__pycache__/
+*.pyc

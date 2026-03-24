@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -283,7 +284,10 @@ internal fun PlaylistsScreen(
                     )
                 }
             } else {
-                items(filteredPlaylistTracks, key = { it.id }) { track ->
+                itemsIndexed(
+                    items = filteredPlaylistTracks,
+                    key = { index, track -> playlistTrackItemKey(index, track) },
+                ) { _, track ->
                     TrackRow(
                         track = track,
                         primaryLabel = "Пуск",
@@ -295,4 +299,8 @@ internal fun PlaylistsScreen(
             }
         }
     }
+}
+
+internal fun playlistTrackItemKey(index: Int, track: com.codex.signalflow.data.TrackRecord): String {
+    return "${track.id}:$index"
 }

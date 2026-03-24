@@ -48,8 +48,8 @@ class ScreenshotImportMatcherTest {
 
         val queries = ScreenshotImportMatcher.buildSearchQueries(candidate)
 
-        assertEquals("feel good inc single edit", queries.first())
-        assertTrue(queries.contains("feel good inc single edit gorillaz jamie hewlett de la soul"))
+        assertEquals("feel good inc single edit gorillaz jamie hewlett de la soul", queries.first())
+        assertTrue(queries.contains("feel good inc single edit"))
         assertTrue(queries.contains("gorillaz jamie hewlett de la soul feel good inc single edit"))
     }
 
@@ -82,7 +82,7 @@ class ScreenshotImportMatcherTest {
 
         assertEquals(ScreenshotImportItemStatus.MATCHED, matched.status)
         assertEquals(exact, matched.bestMatch)
-        assertTrue(matched.matchScore >= 0.66f)
+        assertTrue(matched.matchScore >= 0.72f)
     }
 
     @Test
@@ -135,8 +135,9 @@ class ScreenshotImportMatcherTest {
 
         val queries = ScreenshotImportMatcher.buildSearchQueries(candidate)
 
-        assertEquals("неловко", queries.first())
-        assertTrue(queries.contains("неловко плм"))
+        assertEquals("неловко плм", queries.first())
+        assertTrue(queries.contains("неловко"))
+        assertTrue(queries.contains("плм неловко"))
         assertTrue(queries.none { it.contains("02:21") })
     }
 }

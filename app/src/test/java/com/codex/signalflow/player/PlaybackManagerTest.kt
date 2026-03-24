@@ -75,16 +75,75 @@ class PlaybackManagerTest {
         assertTrue(queue.first().id in tracks.map { it.id })
     }
 
+    @Test
+    fun buildPlaybackQueueAvoidsAdjacentSameArtistWhenAlternativesExist() {
+        val tracks = listOf(
+            sampleTrack(id = "a-1", artist = "Artist A"),
+            sampleTrack(id = "a-2", artist = "Artist A"),
+            sampleTrack(id = "b-1", artist = "Artist B"),
+            sampleTrack(id = "c-1", artist = "Artist C"),
+            sampleTrack(id = "d-1", artist = "Artist D"),
+        )
+
+        val queue = buildPlaybackQueue(
+            tracks = tracks,
+            currentTrackId = "a-1",
+            shuffleEnabled = true,
+            random = Random(42),
+        )
+
+        assertEquals("a-1", queue.first().id)
+        assertNoAdjacentArtists(queue)
+    }
+
+    @Test
+    fun buildPlaybackQueueAllowsAdjacentSameArtistWhenUnavoidable() {
+        val tracks = listOf(
+            sampleTrack(id = "a-1", artist = "Artist A"),
+            sampleTrack(id = "a-2", artist = "Artist A"),
+            sampleTrack(id = "a-3", artist = "Artist A"),
+            sampleTrack(id = "b-1", artist = "Artist B"),
+        )
+
+        val queue = buildPlaybackQueue(
+            tracks = tracks,
+            currentTrackId = "a-1",
+            shuffleEnabled = true,
+            random = Random(7),
+        )
+
+        assertEquals(tracks.size, queue.size)
+        assertEquals(tracks.map { it.id }.sorted(), queue.map { it.id }.sorted())
+    }
+
     private fun sampleTracks(): List<TrackRecord> {
         return List(4) { index ->
-            TrackRecord(
+            sampleTrack(
                 id = "track-$index",
-                uri = "content://track/$index",
                 title = "Track $index",
                 artist = "Artist $index",
-                durationMs = 180_000L + index,
-                importedAtEpochMs = 1_700_000_000_000L + index,
             )
+        }
+    }
+
+    private fun sampleTrack(
+        id: String,
+        title: String = id,
+        artist: String,
+    ): TrackRecord {
+        return TrackRecord(
+            id = id,
+            uri = "content://$id",
+            title = title,
+            artist = artist,
+            durationMs = 180_000L,
+            importedAtEpochMs = 1_700_000_000_000L,
+        )
+    }
+
+    private fun assertNoAdjacentArtists(queue: List<TrackRecord>) {
+        queue.zipWithNext().forEach { (left, right) ->
+            assertNotEquals(left.artist, right.artist)
         }
     }
 }
