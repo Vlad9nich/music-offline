@@ -27,6 +27,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 @UnstableApi
@@ -45,15 +47,28 @@ class MediaPlaybackService : MediaSessionService() {
             .build()
 
         serviceScope.launch {
-            playbackManager.playerState.collectLatest { state ->
-                val shouldShow = state.currentTrack != null && (state.queueSize > 0 || state.isPlaying)
-                playbackManager.setNotificationVisible(shouldShow)
-                if (!shouldShow) {
-                    hideNotification()
-                } else {
-                    showNotification(state)
+            // Rebuild notification only when identity-relevant fields change (not every position tick).
+            playbackManager.playerState
+                .map { state ->
+                    NotificationIdentity(
+                        trackId = state.currentTrack?.id,
+                        title = state.currentTrack?.title,
+                        artist = state.currentTrack?.artist,
+                        isPlaying = state.isPlaying,
+                        shuffle = state.isShuffleEnabled,
+                        queueSize = state.queueSize,
+                    ) to state
                 }
-            }
+                .distinctUntilChanged { a, b -> a.first == b.first }
+                .collectLatest { (_, state) ->
+                    val shouldShow = state.currentTrack != null && (state.queueSize > 0 || state.isPlaying)
+                    playbackManager.setNotificationVisible(shouldShow)
+                    if (!shouldShow) {
+                        hideNotification()
+                    } else {
+                        showNotification(state)
+                    }
+                }
         }
     }
 
@@ -232,6 +247,15 @@ class MediaPlaybackService : MediaSessionService() {
         canvas.drawCircle(size / 2f, size / 2f, size * 0.34f, ringPaint)
         return bitmap
     }
+
+    private data class NotificationIdentity(
+        val trackId: String?,
+        val title: String?,
+        val artist: String?,
+        val isPlaying: Boolean,
+        val shuffle: Boolean,
+        val queueSize: Int,
+    )
 
     companion object {
         private const val CHANNEL_ID = "yaneodex_playback"

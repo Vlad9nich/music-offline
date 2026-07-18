@@ -22,10 +22,12 @@ import com.codex.signalflow.player.VisualizerUiState
 import com.codex.signalflow.source.MusicSourceCatalog
 import com.codex.signalflow.source.RemoteTrackCandidate
 import com.codex.signalflow.source.SourceDescriptor
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
@@ -53,11 +55,11 @@ internal fun buildSelectedPlaylistTracks(
     allTracks: List<TrackRecord>,
 ): List<TrackRecord> {
     val tracksById = allTracks.associateBy { it.id }
+    // Preserve playlist order (trackIds), only dedupe consecutive/legacy duplicates.
     return trackIds
         .asSequence()
         .distinct()
         .mapNotNull { trackId -> tracksById[trackId] }
-        .sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() })
         .toList()
 }
 
@@ -89,36 +91,49 @@ class MainViewModel(
         snapshot to activePlaylist
     }
 
+    @OptIn(FlowPreview::class)
+    private val debouncedLibraryQuery = libraryQuery.debounce(200)
+
+    private val libraryFilterState = combine(librarySelection, debouncedLibraryQuery) { selection, debouncedQuery ->
+        selection to debouncedQuery
+    }
+
     private val coreUiState = combine(
-        librarySelection,
+        libraryFilterState,
         libraryQuery,
         sourceQuery,
         sourceResults,
         sourceStatus,
-    ) { selection, query, remoteQuery, results, sourceMessage ->
+    ) { selectionAndFilter, rawQuery, remoteQuery, results, sourceMessage ->
+        val selection = selectionAndFilter.first
+        val debouncedQuery = selectionAndFilter.second
         val snapshot = selection.first
         val activePlaylist = selection.second
-        val normalizedQuery = query.trim()
-        val filteredTracks = snapshot.tracks
+        val normalizedQuery = debouncedQuery.trim()
+        // Sort library once per snapshot emission, reuse for filter.
+        val sortedTracks = snapshot.tracks
             .sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() })
-            .filter {
-                normalizedQuery.isBlank() ||
-                    it.title.contains(normalizedQuery, ignoreCase = true) ||
+        val filteredTracks = if (normalizedQuery.isBlank()) {
+            sortedTracks
+        } else {
+            sortedTracks.filter {
+                it.title.contains(normalizedQuery, ignoreCase = true) ||
                     it.artist.contains(normalizedQuery, ignoreCase = true)
             }
+        }
         val selectedTracks = buildSelectedPlaylistTracks(
             trackIds = activePlaylist?.trackIds.orEmpty(),
             allTracks = snapshot.tracks,
         )
 
         MainUiState(
-            tracks = snapshot.tracks.sortedWith(compareBy<TrackRecord> { it.title.lowercase() }.thenBy { it.artist.lowercase() }),
+            tracks = sortedTracks,
             filteredTracks = filteredTracks,
             playlists = snapshot.playlists.sortedBy { it.name.lowercase() },
             selectedPlaylistId = activePlaylist?.id,
             selectedPlaylistTracks = selectedTracks,
             selectedPlaylistName = activePlaylist?.name ?: "Плейлист не выбран",
-            libraryQuery = query,
+            libraryQuery = rawQuery,
             sourceQuery = remoteQuery,
             sourceResults = results,
             sourceDescriptors = sourceCatalog.descriptors,

@@ -34,7 +34,8 @@ class LibraryRepository(
     private val mutex = Mutex()
     private val json = Json {
         ignoreUnknownKeys = true
-        prettyPrint = true
+        // Compact JSON: cheaper writes on large libraries
+        prettyPrint = false
     }
     private val storageFile = File(context.filesDir, "yaneodex_library.json")
     private val _snapshot = MutableStateFlow(LibrarySnapshot())

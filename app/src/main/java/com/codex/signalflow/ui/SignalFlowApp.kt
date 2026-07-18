@@ -2,10 +2,13 @@
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -34,7 +37,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -104,8 +106,10 @@ internal val PanelFill = Color(0xFF0A111A)
 internal val PanelFillAlt = Color(0xFF0F1825)
 internal val InkText = Color(0xFFF4F7FF)
 internal val MutedText = Color(0xFF9BA9C4)
-internal val PanelShape = CutCornerShape(topStart = 24.dp, topEnd = 8.dp, bottomEnd = 24.dp, bottomStart = 8.dp)
-internal val InputShape = CutCornerShape(topStart = 18.dp, topEnd = 4.dp, bottomEnd = 18.dp, bottomStart = 4.dp)
+// Softer product surfaces (rounded) — cut-corners were too heavy for dense lists.
+internal val PanelShape = RoundedCornerShape(16.dp)
+internal val InputShape = RoundedCornerShape(12.dp)
+internal val TrackRowShape = RoundedCornerShape(14.dp)
 
 private enum class AppTab(
     val label: String,
@@ -222,8 +226,8 @@ fun SignalFlowApp(
                 AnimatedContent(
                     targetState = currentTab,
                     transitionSpec = {
-                        (slideInHorizontally { it / 7 } + fadeIn()) togetherWith
-                            (slideOutHorizontally { -it / 7 } + fadeOut())
+                        (slideInHorizontally(animationSpec = tween(260)) { it / 12 } + fadeIn(tween(220))) togetherWith
+                            (slideOutHorizontally(animationSpec = tween(220)) { -it / 14 } + fadeOut(tween(180)))
                     },
                     label = "app_tab_transition",
                 ) { tab ->
@@ -237,6 +241,7 @@ fun SignalFlowApp(
                             onOpenParser = { currentTab = AppTab.Search },
                             onOpenLocal = { currentTab = AppTab.Local },
                             onOpenPlaylists = { currentTab = AppTab.Playlists },
+                            onPlayTrack = onPlayTrack,
                         )
 
                         AppTab.Search -> ParserSearchScreen(
@@ -275,7 +280,11 @@ fun SignalFlowApp(
                 }
             }
         }
-        if (isExpandedPlayerOpen) {
+        AnimatedVisibility(
+            visible = isExpandedPlayerOpen,
+            enter = slideInVertically(animationSpec = tween(320)) { it / 3 } + fadeIn(tween(240)),
+            exit = slideOutVertically(animationSpec = tween(240)) { it / 4 } + fadeOut(tween(180)),
+        ) {
             ExpandedPlayerOverlay(
                 state = playerState,
                 visualizerState = visualizerState,
@@ -531,54 +540,78 @@ internal fun TrackRow(
     tertiaryLabel: String? = null,
     onTertiary: (() -> Unit)? = null,
 ) {
-    PanelCard(title = "Трек", accent = NeonPink) {
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+    // Dense product row (≈56–64dp) instead of heavy PanelCard titled "ТРЕК".
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(TrackRowShape)
+            .background(PanelFill)
+            .border(1.dp, NeonCyan.copy(alpha = 0.18f), TrackRowShape)
+            .clickable(onClick = onPrimary)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        Box(
+            modifier = Modifier
+                .size(44.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(
+                    Brush.linearGradient(
+                        listOf(NeonPink.copy(alpha = 0.35f), NeonCyan.copy(alpha = 0.2f)),
+                    ),
+                ),
+            contentAlignment = Alignment.Center,
         ) {
+            Text(
+                text = track.title.take(1).uppercase(),
+                color = InkText,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.titleMedium,
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
                 color = InkText,
-                maxLines = 2,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyLarge,
             )
             Text(
-                text = "${track.artist} • ${formatDuration(track.durationMs)}",
+                text = "${track.artist} · ${formatDuration(track.durationMs)}",
                 color = MutedText,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 2,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SecondaryActionButton(
-                    label = primaryLabel,
-                    icon = Icons.Rounded.PlayArrow,
-                    onClick = onPrimary,
-                    compact = true,
-                )
-                SecondaryActionButton(
-                    label = secondaryLabel,
-                    icon = Icons.Rounded.PlaylistPlay,
-                    onClick = onSecondary,
-                    compact = true,
-                )
-                if (tertiaryIcon != null && tertiaryLabel != null && onTertiary != null) {
-                    ActionIconButton(
-                        icon = tertiaryIcon,
-                        contentDescription = tertiaryLabel,
-                        enabled = true,
-                        active = false,
-                        accent = NeonPink,
-                        onClick = onTertiary,
-                    )
-                }
-            }
+        }
+        ActionIconButton(
+            icon = Icons.Rounded.PlayArrow,
+            contentDescription = primaryLabel,
+            enabled = true,
+            active = false,
+            accent = NeonCyan,
+            onClick = onPrimary,
+        )
+        ActionIconButton(
+            icon = Icons.Rounded.PlaylistPlay,
+            contentDescription = secondaryLabel,
+            enabled = true,
+            active = false,
+            accent = NeonPink,
+            onClick = onSecondary,
+        )
+        if (tertiaryIcon != null && tertiaryLabel != null && onTertiary != null) {
+            ActionIconButton(
+                icon = tertiaryIcon,
+                contentDescription = tertiaryLabel,
+                enabled = true,
+                active = false,
+                accent = NeonPink,
+                onClick = onTertiary,
+            )
         }
     }
 }
@@ -858,40 +891,65 @@ internal fun CompactTrackCard(
     track: TrackRecord,
     accent: Color,
     meta: String,
+    onClick: (() -> Unit)? = null,
 ) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (onClick != null) {
+                    Modifier.clickable(onClick = onClick)
+                } else {
+                    Modifier
+                },
+            ),
         colors = CardDefaults.cardColors(containerColor = PanelFill),
-        shape = PanelShape,
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.24f)),
+        shape = TrackRowShape,
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.22f)),
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(
-                text = track.title,
-                color = InkText,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = track.artist,
-                color = MutedText,
-                style = MaterialTheme.typography.bodySmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                text = meta,
-                color = accent,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(accent.copy(alpha = 0.22f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    track.title.take(1).uppercase(),
+                    color = InkText,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = track.title,
+                    color = InkText,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = track.artist,
+                    color = MutedText,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    text = meta,
+                    color = accent,
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

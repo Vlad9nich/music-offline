@@ -19,7 +19,8 @@ class PlaylistTrackListHelpersTest {
             allTracks = tracks,
         )
 
-        assertEquals(listOf("1", "2"), selected.map { it.id })
+        // Order follows playlist trackIds (first occurrence after distinct), not title sort.
+        assertEquals(listOf("2", "1"), selected.map { it.id })
     }
 
     @Test

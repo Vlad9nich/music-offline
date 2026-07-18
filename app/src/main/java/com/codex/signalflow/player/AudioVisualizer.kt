@@ -42,6 +42,7 @@ class AudioVisualizerController {
     private var lastPeakIntensity: Float = 0f
     private var lastBassIntensity: Float = 0f
     private var glowPhase: Float = 0f
+    private var lastPublishAtMs: Long = 0L
 
     fun update(
         audioSessionId: Int,
@@ -277,6 +278,11 @@ class AudioVisualizerController {
         usingFallback: Boolean,
         active: Boolean,
     ) {
+        // Cap UI publish rate (~30fps) — capture callbacks fire much faster.
+        val now = System.currentTimeMillis()
+        if (active && now - lastPublishAtMs < 33L) return
+        lastPublishAtMs = now
+        lastBars = frame.bars
         _state.value = VisualizerUiState(
             bars = frame.bars,
             isUsingFallback = usingFallback,

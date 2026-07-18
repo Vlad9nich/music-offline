@@ -32,6 +32,7 @@ internal fun HomeScreen(
     onOpenParser: () -> Unit,
     onOpenLocal: () -> Unit,
     onOpenPlaylists: () -> Unit,
+    onPlayTrack: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     val localPreview = uiState.tracks.take(4)
@@ -146,6 +147,7 @@ internal fun HomeScreen(
                     track = track,
                     accent = NeonPink,
                     meta = uiState.selectedPlaylistName,
+                    onClick = { onPlayTrack(track.id) },
                 )
             }
         }
@@ -165,6 +167,7 @@ internal fun HomeScreen(
                     track = track,
                     accent = NeonCyan,
                     meta = "Офлайн-библиотека",
+                    onClick = { onPlayTrack(track.id) },
                 )
             }
         }

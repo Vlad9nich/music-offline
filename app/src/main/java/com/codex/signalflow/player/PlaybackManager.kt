@@ -49,6 +49,9 @@ class PlaybackManager(
     private var visualizerActive: Boolean = false
     private var visualizerPermissionGranted: Boolean = false
     private var notificationVisible: Boolean = false
+    /** Last emitted identity (track/play/shuffle/queue) for cheap equality checks. */
+    private var lastIdentityKey: String = ""
+    private var lastEmittedPositionMs: Long = -1L
 
     val visualizerState: StateFlow<VisualizerUiState> = audioVisualizer.state
     val player: ExoPlayer get() = exoPlayer
@@ -67,16 +70,18 @@ class PlaybackManager(
                         playWhenReady = false,
                     )
                 }
-                updateState()
+                // Identity-level events force a full publish immediately.
+                updateState(force = true)
             }
         })
         scope.launch {
             while (true) {
-                updateState()
+                // Timeline ticks: slower when visualizer is off to avoid root recomposition storms.
+                updateState(force = false)
                 delay(
                     when {
-                        visualizerActive -> 220L
-                        exoPlayer.isPlaying -> 900L
+                        visualizerActive && exoPlayer.isPlaying -> 280L
+                        exoPlayer.isPlaying -> 500L
                         else -> 1_200L
                     },
                 )
@@ -190,7 +195,7 @@ class PlaybackManager(
         updateState()
     }
 
-    private fun updateState() {
+    private fun updateState(force: Boolean = true) {
         val currentIndex = exoPlayer.currentMediaItemIndex.coerceAtLeast(0)
         val duration = exoPlayer.duration.takeIf { it > 0 } ?: playbackQueue.getOrNull(currentIndex)?.durationMs ?: 0L
         val position = exoPlayer.currentPosition.coerceAtLeast(0L)
@@ -199,10 +204,31 @@ class PlaybackManager(
         } else {
             0f
         }
+        val track = playbackQueue.getOrNull(currentIndex)
+        val isPlaying = exoPlayer.isPlaying
+        val identityKey = listOf(
+            track?.id.orEmpty(),
+            isPlaying.toString(),
+            shuffleEnabled.toString(),
+            playbackQueue.size.toString(),
+            currentIndex.toString(),
+            notificationVisible.toString(),
+            currentQueueLabel,
+        ).joinToString("|")
+
+        val identityChanged = identityKey != lastIdentityKey
+        val positionDelta = kotlin.math.abs(position - lastEmittedPositionMs)
+        // Skip no-op timeline ticks unless identity changed or position moved enough.
+        if (!force && !identityChanged && positionDelta < 400L && !visualizerActive) {
+            return
+        }
+
+        lastIdentityKey = identityKey
+        lastEmittedPositionMs = position
         _playerState.value = PlayerUiState(
             queueLabel = currentQueueLabel,
-            currentTrack = playbackQueue.getOrNull(currentIndex),
-            isPlaying = exoPlayer.isPlaying,
+            currentTrack = track,
+            isPlaying = isPlaying,
             isShuffleEnabled = shuffleEnabled,
             queueSize = playbackQueue.size,
             currentIndex = currentIndex,
@@ -217,7 +243,7 @@ class PlaybackManager(
         )
         audioVisualizer.update(
             audioSessionId = exoPlayer.audioSessionId,
-            isPlaying = exoPlayer.isPlaying,
+            isPlaying = isPlaying,
             isActive = visualizerActive,
             permissionGranted = visualizerPermissionGranted,
             progressFraction = progressFraction,
