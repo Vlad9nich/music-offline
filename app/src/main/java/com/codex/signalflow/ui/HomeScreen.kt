@@ -64,7 +64,7 @@ internal fun HomeScreen(
 
         // Laughing DedSec ASCII Skull Monitor
         item {
-            AsciiSkullCard(title = "DEDSEC: SKULL.TXT")
+            AsciiSkullCard(title = "skull.txt")
         }
 
         // Fast Portal Links (Horizontal Row)

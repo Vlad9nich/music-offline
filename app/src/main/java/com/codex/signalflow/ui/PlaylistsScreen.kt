@@ -1,5 +1,7 @@
 package com.codex.signalflow.ui
 
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,8 +25,11 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.DocumentScanner
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
+import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
@@ -37,6 +43,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -60,6 +67,9 @@ internal fun PlaylistsScreen(
     onOcrAuthTokenChange: (String) -> Unit,
     onDismissScreenshotImport: () -> Unit,
     onAddScreenshotImportMatch: (String) -> Unit,
+    onSetYandexToken: (String?) -> Unit = {},
+    onToggleYandexDirectSource: () -> Unit = {},
+    onStartYandexLikesSync: () -> Unit = {},
 ) {
     var draftName by rememberSaveable { mutableStateOf("") }
     var isDetailOpen by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf(false) }
@@ -131,6 +141,165 @@ internal fun PlaylistsScreen(
                             onClick = onImportPlaylistScreenshots,
                             compact = true,
                         )
+                    }
+                }
+            }
+
+            // Yandex Music Liked Tracks Sync Card (Способ Б + Загрузчик llistochek/yandex-music-downloader)
+            item {
+                val context = LocalContext.current
+                var yandexTokenInput by rememberSaveable(uiState.yandexToken) {
+                    mutableStateOf(uiState.yandexToken.orEmpty())
+                }
+                val syncProgress = uiState.yandexSyncProgress
+
+                PanelCard(
+                    title = "СИНХРОНИЗАЦИЯ: ЯНДЕКС МУЗЫКА",
+                    accent = Color.White,
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = if (uiState.yandexToken.isNullOrBlank()) "ТОКЕН: НЕ ЗАДАН" else "ТОКЕН: АКТИВЕН",
+                            color = if (uiState.yandexToken.isNullOrBlank()) Color(0xFFE28B8B) else Color(0xFF00FF66),
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                        )
+                        SecondaryActionButton(
+                            label = if (uiState.isYandexDirectSourceEnabled) "РЕЗЕРВ ЯНДЕКС: ВКЛ" else "РЕЗЕРВ ЯНДЕКС: ВЫКЛ",
+                            icon = Icons.Rounded.Sync,
+                            onClick = onToggleYandexDirectSource,
+                            compact = true,
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    // Token input row
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            CyberTextField(
+                                value = yandexTokenInput,
+                                onValueChange = { yandexTokenInput = it },
+                                placeholder = "YANDEX OAUTH TOKEN...",
+                                imeAction = ImeAction.Done,
+                            )
+                        }
+                        SecondaryActionButton(
+                            label = "СОХРАНИТЬ",
+                            icon = Icons.Rounded.Key,
+                            onClick = { onSetYandexToken(yandexTokenInput) },
+                            compact = true,
+                        )
+                    }
+
+                    Spacer(Modifier.height(8.dp))
+
+                    // Buttons: Get Token link & Start Sync
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SecondaryActionButton(
+                            modifier = Modifier.weight(1f),
+                            label = "ПОЛУЧИТЬ ТОКЕН",
+                            icon = Icons.Rounded.OpenInBrowser,
+                            onClick = {
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ym.marshal.dev/token/#"))
+                                context.startActivity(browserIntent)
+                            },
+                            compact = true,
+                        )
+                        PrimaryActionButton(
+                            modifier = Modifier.weight(1f),
+                            label = if (syncProgress.isRunning) "КОНВЕЙЕР РАБОТАЕТ..." else "СИНХР. ЛАЙКИ",
+                            icon = Icons.Rounded.Sync,
+                            onClick = onStartYandexLikesSync,
+                            compact = true,
+                        )
+                    }
+
+                    // Active progress display
+                    if (syncProgress.isRunning || syncProgress.message.isNotBlank() || syncProgress.error != null) {
+                        Spacer(Modifier.height(10.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF080D14), CutSmallShape)
+                                .border(1.dp, Color(0xFF202A38), CutSmallShape)
+                                .padding(10.dp),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                if (syncProgress.error != null) {
+                                    Text(
+                                        text = "[!] ОШИБКА: ${syncProgress.error}",
+                                        color = Color(0xFFFF5555),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 11.sp,
+                                    )
+                                } else {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                    ) {
+                                        Text(
+                                            text = if (syncProgress.total > 0) "[ ${syncProgress.current} / ${syncProgress.total} ]" else "ПОДГОТОВКА...",
+                                            color = Color.White,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
+                                        )
+                                        Text(
+                                            text = if (syncProgress.isRunning) "В ПРОЦЕССЕ" else "ГОТОВО",
+                                            color = if (syncProgress.isRunning) Color(0xFF00FF66) else Color(0xFF8E9BAE),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                        )
+                                    }
+                                    if (syncProgress.currentTrackTitle.isNotBlank()) {
+                                        Text(
+                                            text = syncProgress.currentTrackTitle,
+                                            color = Color.White,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 11.sp,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                    }
+                                    Text(
+                                        text = syncProgress.message,
+                                        color = Color(0xFF8E9BAE),
+                                        fontFamily = FontFamily.Monospace,
+                                        fontSize = 10.sp,
+                                    )
+                                    if (syncProgress.total > 0) {
+                                        Spacer(Modifier.height(4.dp))
+                                        val fraction = (syncProgress.current.toFloat() / syncProgress.total.toFloat()).coerceIn(0f, 1f)
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(3.dp)
+                                                .background(Color(0xFF1B2330)),
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth(fraction)
+                                                    .fillMaxHeight()
+                                                    .background(Color.White),
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }

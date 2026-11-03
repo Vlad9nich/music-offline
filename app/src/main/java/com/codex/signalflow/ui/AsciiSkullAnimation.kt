@@ -4,19 +4,18 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,166 +29,154 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Cranium (top part of the skull, completely static)
+// Cranium (top part of the skull - stationary, exact transcription of skull.txt)
 private val SKULL_CRANIUM = """
-         ,--.
-       ,g§§§§Sk.
-     ,d§§§§§§§§§§k.
-    ,?^?§7°'  '?§SS§§L.
-   ,?   §SL._  ,d§iiS§§§SL
-  j§Su%S§S§§§§§?:iiS§§§Sb
- :?°?^4§S§§"^°?§SL:iiS§SI:
- :'   '/'?§'.   '?LiS§§SI:
- '       ,        ?kiSSI?
-       :.      §k  _  '?Si7
-     .,_,-     i§S%7- :i?'
-""".trimIndent().replace('§', '$')
+|          --
+|        ,gS§§§Sk.
+|      ,d§§§§§§§§§§k.
+|     ,?^?§7°' `'?§SS§§L.
+|    ,?  §SL._  ,d§iIS§§§SL
+|   j§Su%§S§§§§§?:iIS§§§Sb
+|  :?º?^4§S§§"º?§SL:iIS§SI:
+|  :'   '/`?§'.  `?LiS§§SI:
+|  '     ,         ?kiSSI?
+|        :.     §k ¯ `?Si7
+|        .,_,_  i§S%7·:i?'
+""".trimMargin("|").trim('\n').replace('§', '$')
 
-// Jaw (lower mandible, articulates up and down when laughing)
-private val SKULL_JAW = """
-    ?%uS%uo.d§§?' -?°'
-    S§§§§§§§§§i
-    -?§§S?
-""".trimIndent().replace('§', '$')
+// Jaw (lower mandible - articulates smoothly downward when laughing)
+// Cursor '█' blinks at line 11 between ?%uS%uo and d$$?'·?º` as shown in Emacs editor
+private fun getSkullJaw(cursorChar: String) = """
+|      ?%uS%uo${cursorChar}d§§?'·?º`
+|      S§§§§§§§§§i
+|     ·?§§S?
+""".trimMargin("|").trim('\n').replace('§', '$')
 
 /**
- * Natural laughing ASCII Skull: mouth opens and closes with varying rhythmic frequency.
+ * Natural laughing DedSec ASCII Skull:
+ * Exact pixel-accurate transcription of the iconic `skull.txt` terminal buffer.
+ * Simple, organic laughing animation: mouth opens and closes with varying rhythmic frequency.
  */
 @Composable
 fun AsciiSkullCard(
     modifier: Modifier = Modifier,
-    title: String = "DEDSEC: SKULL.TXT",
+    title: String = "skull.txt",
 ) {
-    val cursor = rememberBlinkingCursor()
-    val transition = rememberInfiniteTransition(label = "ascii_laugh_loop")
+    val transition = rememberInfiniteTransition(label = "skull_laugh_loop")
 
-    // Master 3600ms loop for organic varying laughter cadence
-    val timeMs by transition.animateFloat(
+    // Animated jaw offset (dp) simulating natural varied laughter
+    val jawOffset by transition.animateFloat(
         initialValue = 0f,
-        targetValue = 3600f,
+        targetValue = 0f,
         animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 3600, easing = LinearEasing),
+            animation = keyframes {
+                durationMillis = 4200
+                0f at 0           // Resting (closed)
+                0f at 1000
+                6f at 1120        // Quick chuckle 1
+                0f at 1240
+                7f at 1360        // Quick chuckle 2
+                0f at 1480
+                8f at 1600        // Chuckle 3
+                0f at 1720
+                0f at 2000        // Inhale pause
+                14f at 2180       // Big laugh burst (wide open)
+                10f at 2280
+                15f at 2400       // Hearty laugh
+                8f at 2520
+                13f at 2640       // Laugh tremor
+                5f at 2780
+                0f at 2920        // Close
+                0f at 4200        // Calm resting pause
+            },
             repeatMode = RepeatMode.Restart,
         ),
-        label = "laugh_time_ms",
+        label = "jaw_offset",
     )
 
-    // Gap specifies how many empty lines are between cranium and jaw:
-    // 0 = mouth closed, 1 = mouth half open, 2 = mouth wide open.
-    val (gap, isLaughing) = when (timeMs) {
-        in 0f..600f -> Pair(0, false)       // Pause (closed)
-        in 600f..750f -> Pair(1, true)      // Chuckle 1 (open)
-        in 750f..900f -> Pair(0, true)      // (close)
-        in 900f..1050f -> Pair(1, true)     // Chuckle 2 (open)
-        in 1050f..1200f -> Pair(0, true)    // (close)
-        in 1200f..1350f -> Pair(1, true)    // Chuckle 3 (open)
-        in 1350f..1600f -> Pair(0, false)   // Short breath (closed)
-        in 1600f..1900f -> Pair(2, true)    // Hearty laugh 1 (wide open!)
-        in 1900f..2050f -> Pair(1, true)    // (mid close)
-        in 2050f..2400f -> Pair(2, true)    // Hearty laugh 2 (wide open!)
-        in 2400f..2600f -> Pair(0, true)    // (close)
-        in 2600f..2800f -> Pair(1, true)    // Chuckle 4 (open)
-        else -> Pair(0, false)              // Resting pause (closed)
-    }
-
-    // Keep total line count constant (16 lines) so the card never jumps in height
-    val skullText = buildString {
-        append(SKULL_CRANIUM)
-        append("\n")
-        repeat(gap) {
-            append("\n")
-        }
-        append(SKULL_JAW)
-        repeat(2 - gap) {
-            append("\n")
-        }
-    }
+    // Emacs text editor blinking block cursor
+    val cursorBlink by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 530, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "cursor_blink",
+    )
+    val cursorChar = if (cursorBlink > 0.5f) "█" else " "
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(CutPanelShape)
-            .background(Color(0xFF06090E))
-            .border(1.dp, if (isLaughing) Color.White else Color(0xFF222B38), CutPanelShape)
-            .techCornerMarks(markColor = if (isLaughing) Color.White else Color(0x66FFFFFF))
-            .scanlineOverlay(lineColor = Color(0x18FFFFFF), stepPx = 4f),
+            .background(Color.Black)
+            .border(1.dp, Color(0xFF1E2836), CutPanelShape)
+            .techCornerMarks(markColor = Color(0x66FFFFFF)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(top = 16.dp, bottom = 0.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // Header bar
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Box(
-                        modifier = Modifier
-                            .size(7.dp)
-                            .background(if (isLaughing) Color.White else Color(0xFF00FF66), CutSmallShape),
-                    )
-                    Text(
-                        text = title,
-                        color = Color.White,
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-                Text(
-                    text = if (isLaughing) "СМЕХ" else "ОЖИДАНИЕ",
-                    color = if (isLaughing) Color.White else Color(0xFF7A889B),
-                    fontFamily = FontFamily.Monospace,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold,
-                )
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            // ASCII Skull Art Display (smoothly opens and closes mouth)
-            Text(
-                text = skullText,
-                color = Color(0xFFD4E0F0),
-                fontFamily = FontFamily.Monospace,
-                fontSize = 10.sp,
-                lineHeight = 11.sp,
-                textAlign = TextAlign.Center,
-                fontWeight = FontWeight.Bold,
-            )
-
-            Spacer(Modifier.height(8.dp))
-
-            // Emacs / Terminal Bottom Status Bar from screenshot: -UUU:**--F1   skull.txt
+            // ASCII Skull Container (centered horizontally, text left-aligned to preserve ASCII grid)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFD6DFEB), CutSmallShape)
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .height(235.dp),
+                contentAlignment = Alignment.TopCenter,
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    modifier = Modifier.wrapContentSize(),
+                    horizontalAlignment = Alignment.Start,
                 ) {
+                    // Cranium (stationary)
                     Text(
-                        text = "-UUU:**--F1   skull.txt$cursor",
-                        color = Color.Black,
+                        text = SKULL_CRANIUM,
+                        color = Color(0xFFD6E2F0),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
+                        lineHeight = 13.sp,
                         fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Start,
+                        softWrap = false,
                     )
+
+                    // Articulated jaw gap (opens and closes when laughing)
+                    Spacer(modifier = Modifier.height(jawOffset.dp))
+
+                    // Jaw with Emacs text cursor
                     Text(
-                        text = "100%   L14",
-                        color = Color(0xFF333333),
+                        text = getSkullJaw(cursorChar),
+                        color = Color(0xFFD6E2F0),
                         fontFamily = FontFamily.Monospace,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
+                        lineHeight = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Start,
+                        softWrap = false,
                     )
                 }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            // Emacs / Terminal Bottom Status Bar from reference screenshot: -UUU:**--F1   skull.txt
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF9EACB8))
+                    .padding(horizontal = 10.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = "-UUU:**--F1   $title",
+                    color = Color.Black,
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Start,
+                )
             }
         }
     }

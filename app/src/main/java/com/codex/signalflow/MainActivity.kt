@@ -114,6 +114,9 @@ class MainActivity : ComponentActivity() {
                     onDeleteLocalTrack = viewModel::deleteLocalTrack,
                     onDismissScreenshotImport = viewModel::dismissScreenshotImportSession,
                     onAddScreenshotImportMatch = viewModel::addScreenshotImportMatch,
+                    onSetYandexToken = viewModel::setYandexToken,
+                    onToggleYandexDirectSource = viewModel::toggleYandexDirectSource,
+                    onStartYandexLikesSync = viewModel::startYandexLikesSync,
                 )
             }
         }

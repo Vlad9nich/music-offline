@@ -33,6 +33,7 @@ data class DownloadBlueprint(
     val url: String,
     val suggestedFilename: String,
     val refererUrl: String? = null,
+    val coverUrl: String? = null,
 )
 
 interface MusicSource {
@@ -295,6 +296,52 @@ class LigaudioSource : HtmlMusicSourceTemplate(
         val directDownloadUrl: String?,
     ) {
         fun uniqueKey(): String = "${artist.lowercase()}|${title.lowercase()}|${directDownloadUrl.orEmpty()}|${detailUrl}"
+    }
+}
+
+class YandexDirectSource(
+    private val client: com.codex.signalflow.yandex.YandexMusicClient,
+    private val tokenProvider: () -> String?,
+    private val isEnabledProvider: () -> Boolean,
+) : MusicSource {
+    override val descriptor: SourceDescriptor
+        get() {
+            val enabled = isEnabledProvider() && !tokenProvider().isNullOrBlank()
+            return SourceDescriptor(
+                id = "yandex_direct",
+                name = "Яндекс Музыка (Direct)",
+                status = if (enabled) "Активен (320 kbps)" else "Отключен",
+                description = "Прямой поиск и загрузка треков из каталога Яндекс Музыки (llistochek/yandex-music-downloader).",
+                isEnabled = enabled,
+            )
+        }
+
+    override suspend fun search(query: String): List<RemoteTrackCandidate> = withContext(Dispatchers.IO) {
+        val token = tokenProvider() ?: return@withContext emptyList()
+        if (!isEnabledProvider()) return@withContext emptyList()
+        val results = client.searchTracks(token, query).getOrDefault(emptyList())
+        results.map { meta ->
+            RemoteTrackCandidate(
+                sourceId = descriptor.id,
+                title = meta.title,
+                artist = meta.artist,
+                detailUrl = meta.id,
+                coverUrl = meta.coverUrl,
+            )
+        }
+    }
+
+    override suspend fun resolve(track: RemoteTrackCandidate): DownloadBlueprint = withContext(Dispatchers.IO) {
+        val token = tokenProvider() ?: error("Токен Яндекс Музыки не задан.")
+        val directUrl = client.resolveDirectDownloadUrl(token, track.detailUrl).getOrThrow()
+        val filename = "${track.artist} - ${track.title}.mp3".replace(Regex("[/\\\\:*?\"<>|]"), "_")
+        DownloadBlueprint(
+            title = track.title,
+            artist = track.artist,
+            url = directUrl,
+            suggestedFilename = filename,
+            coverUrl = track.coverUrl,
+        )
     }
 }
 

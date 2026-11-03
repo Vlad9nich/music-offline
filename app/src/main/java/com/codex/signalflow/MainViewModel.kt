@@ -1,4 +1,4 @@
-﻿package com.codex.signalflow
+package com.codex.signalflow
 
 import android.app.Application
 import android.net.Uri
@@ -48,6 +48,9 @@ data class MainUiState(
     val ocrServerUrl: String = "",
     val ocrAuthToken: String = "",
     val screenshotImportSession: ScreenshotImportSession? = null,
+    val yandexToken: String? = null,
+    val isYandexDirectSourceEnabled: Boolean = false,
+    val yandexSyncProgress: com.codex.signalflow.yandex.YandexSyncProgress = com.codex.signalflow.yandex.YandexSyncProgress(),
 )
 
 internal fun buildSelectedPlaylistTracks(
@@ -69,7 +72,17 @@ class MainViewModel(
     private val repository = LibraryRepository(application)
     private val screenshotImportRepository = ScreenshotImportRepository(application)
     private val playbackController = PlaybackController(application)
-    private val sourceCatalog = MusicSourceCatalog()
+    private val yandexSyncManager = com.codex.signalflow.yandex.YandexSyncManager(application)
+    private val sourceCatalog = MusicSourceCatalog(
+        sources = listOf(
+            com.codex.signalflow.source.LigaudioSource(),
+            com.codex.signalflow.source.YandexDirectSource(
+                client = yandexSyncManager.client,
+                tokenProvider = { yandexSyncManager.token.value },
+                isEnabledProvider = { yandexSyncManager.isDirectSourceEnabled.value },
+            ),
+        ),
+    )
     private val selectedPlaylistId = MutableStateFlow<String?>(null)
     private val libraryQuery = MutableStateFlow("")
     private val sourceQuery = MutableStateFlow("")
@@ -149,8 +162,20 @@ class MainViewModel(
         )
     }
 
-    val uiState: StateFlow<MainUiState> = combine(baseUiState, downloadingTrackKeys) { state, downloadingKeys ->
-        state.copy(downloadingTrackKeys = downloadingKeys)
+    val uiState: StateFlow<MainUiState> = combine(
+        baseUiState,
+        downloadingTrackKeys,
+        yandexSyncManager.token,
+        yandexSyncManager.isDirectSourceEnabled,
+        yandexSyncManager.progress,
+    ) { state, downloadingKeys, yToken, yDirectEnabled, yProgress ->
+        state.copy(
+            downloadingTrackKeys = downloadingKeys,
+            yandexToken = yToken,
+            isYandexDirectSourceEnabled = yDirectEnabled,
+            yandexSyncProgress = yProgress,
+            sourceDescriptors = sourceCatalog.descriptors,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState(sourceDescriptors = sourceCatalog.descriptors))
 
     init {
@@ -484,6 +509,23 @@ class MainViewModel(
             } finally {
                 downloadingTrackKeys.value = downloadingTrackKeys.value - key
             }
+        }
+    }
+
+    fun setYandexToken(token: String?) {
+        yandexSyncManager.setToken(token)
+        snackbar.value = if (!token.isNullOrBlank()) "Токен Яндекс Музыки сохранён." else "Токен сброшен."
+    }
+
+    fun toggleYandexDirectSource() {
+        val current = yandexSyncManager.isDirectSourceEnabled.value
+        yandexSyncManager.setDirectSourceEnabled(!current)
+        snackbar.value = if (!current) "Прямой источник Яндекс Музыка включен." else "Прямой источник Яндекс отключен."
+    }
+
+    fun startYandexLikesSync() {
+        viewModelScope.launch {
+            yandexSyncManager.runLikesImportPipeline(sourceCatalog, repository)
         }
     }
 

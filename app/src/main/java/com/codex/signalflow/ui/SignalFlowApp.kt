@@ -168,6 +168,9 @@ fun SignalFlowApp(
     onDeleteLocalTrack: (String) -> Unit,
     onDismissScreenshotImport: () -> Unit,
     onAddScreenshotImportMatch: (String) -> Unit,
+    onSetYandexToken: (String?) -> Unit = {},
+    onToggleYandexDirectSource: () -> Unit = {},
+    onStartYandexLikesSync: () -> Unit = {},
 ) {
     var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var isExpandedPlayerOpen by rememberSaveable { mutableStateOf(false) }
@@ -275,6 +278,9 @@ fun SignalFlowApp(
                             onOcrAuthTokenChange = onOcrAuthTokenChange,
                             onDismissScreenshotImport = onDismissScreenshotImport,
                             onAddScreenshotImportMatch = onAddScreenshotImportMatch,
+                            onSetYandexToken = onSetYandexToken,
+                            onToggleYandexDirectSource = onToggleYandexDirectSource,
+                            onStartYandexLikesSync = onStartYandexLikesSync,
                         )
                     }
                 }
@@ -1209,10 +1215,12 @@ internal fun SecondaryActionButton(
     label: String,
     icon: ImageVector,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
     compact: Boolean = false,
 ) {
     TactileButton(
         onClick = onClick,
+        modifier = modifier,
         inverted = false,
         icon = icon,
         text = label,

@@ -1,4 +1,4 @@
-﻿package com.codex.signalflow.data
+package com.codex.signalflow.data
 
 import android.content.ContentValues
 import android.content.Context
@@ -272,12 +272,18 @@ class LibraryRepository(
             logError(stage = "register", message = "metadata reader threw for uri=${stored.persistedUri}", error = error)
         }.getOrNull()
 
-        val track = metadataTrack ?: buildFallbackTrackRecord(
+        val rawTrack = metadataTrack ?: buildFallbackTrackRecord(
             playbackUri = stored.persistedUri,
             sourceUri = blueprint.url,
             title = blueprint.title,
             artist = blueprint.artist,
         )
+
+        val track = if (!blueprint.coverUrl.isNullOrBlank() && rawTrack.coverUri.isNullOrBlank()) {
+            rawTrack.copy(coverUri = blueprint.coverUrl)
+        } else {
+            rawTrack
+        }
 
         logDebug(
             stage = "register",
