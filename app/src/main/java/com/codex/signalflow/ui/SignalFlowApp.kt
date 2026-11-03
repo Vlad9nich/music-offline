@@ -380,12 +380,12 @@ private fun BottomNavigation(currentTab: AppTab, onSelect: (AppTab) -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center,
                 ) {
-                    Icon(
-                        imageVector = tab.icon,
-                        contentDescription = tab.label,
-                        tint = contentColor,
-                        modifier = Modifier.size(18.dp),
-                    )
+                    when (tab) {
+                        AppTab.Home -> DedSecTerminalNavIcon(tint = contentColor)
+                        AppTab.Search -> DedSecSearchNavIcon(tint = contentColor)
+                        AppTab.Local -> DedSecLibraryNavIcon(tint = contentColor)
+                        AppTab.Playlists -> DedSecPlaylistsNavIcon(tint = contentColor)
+                    }
                     Spacer(Modifier.height(3.dp))
                     Text(
                         text = tab.label,
@@ -1177,6 +1177,7 @@ internal fun PrimaryActionButton(
     icon: ImageVector,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    compact: Boolean = false,
 ) {
     TactileButton(
         onClick = onClick,

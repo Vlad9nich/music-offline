@@ -62,6 +62,11 @@ internal fun HomeScreen(
             }
         }
 
+        // Laughing DedSec ASCII Skull Monitor
+        item {
+            AsciiSkullCard(title = "DEDSEC: SKULL.TXT")
+        }
+
         // Fast Portal Links (Horizontal Row)
         item {
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

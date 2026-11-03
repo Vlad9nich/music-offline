@@ -1,13 +1,18 @@
 package com.codex.signalflow.ui
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,11 +20,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.CutCornerShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
@@ -45,10 +53,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.signalflow.player.PlayerUiState
@@ -291,7 +302,6 @@ internal fun ExpandedPlayerOverlay(
 }
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
 internal fun PlaybackTimeline(
     state: PlayerUiState,
     onSeekTo: (Long) -> Unit,
@@ -304,55 +314,125 @@ internal fun PlaybackTimeline(
     } else {
         0f
     }
-    val interactionSource = remember { MutableInteractionSource() }
-    val isDragging by interactionSource.collectIsDraggedAsState()
-    var sliderValue by remember(duration) { mutableStateOf(activeFraction) }
+    var isDragging by remember { mutableStateOf(false) }
+    var dragFraction by remember(duration) { mutableStateOf(activeFraction) }
 
     LaunchedEffect(activeFraction, isDragging) {
-        if (!isDragging) sliderValue = activeFraction
+        if (!isDragging) dragFraction = activeFraction
     }
+
+    val currentFraction = if (isDragging) dragFraction else activeFraction
+    val displayPosition = if (isDragging && duration > 0L) (duration * dragFraction).toLong() else position
+
+    val thumbSize by animateDpAsState(
+        targetValue = when {
+            isDragging -> if (compact) 10.dp else 15.dp
+            compact -> 0.dp
+            else -> 9.dp
+        },
+        animationSpec = spring(dampingRatio = 0.65f, stiffness = 450f),
+        label = "scrubber_thumb_size",
+    )
 
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp),
     ) {
-        Slider(
-            value = if (isDragging) sliderValue else activeFraction,
-            onValueChange = { fraction -> sliderValue = fraction },
-            onValueChangeFinished = {
-                if (duration > 0L) onSeekTo((duration * sliderValue).toLong())
-            },
-            valueRange = 0f..1f,
-            enabled = state.canSeek,
-            interactionSource = interactionSource,
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (compact) 16.dp else 22.dp),
-            thumb = {
-                if (!compact || isDragging) {
-                    Box(
-                        modifier = Modifier
-                            .size(width = 6.dp, height = 14.dp)
-                            .background(Color.White),
+                .height(if (compact) 18.dp else 34.dp)
+                .pointerInput(state.canSeek, duration) {
+                    if (!state.canSeek || duration <= 0L) return@pointerInput
+                    detectTapGestures(
+                        onPress = { offset ->
+                            isDragging = true
+                            dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                            val released = tryAwaitRelease()
+                            if (released) {
+                                onSeekTo((duration * dragFraction).toLong())
+                            }
+                            isDragging = false
+                        }
                     )
                 }
-            },
-            colors = SliderDefaults.colors(
-                thumbColor = Color.White,
-                activeTrackColor = Color.White,
-                inactiveTrackColor = Color(0xFF222834),
-            ),
-        )
+                .pointerInput(state.canSeek, duration) {
+                    if (!state.canSeek || duration <= 0L) return@pointerInput
+                    detectHorizontalDragGestures(
+                        onDragStart = { offset ->
+                            isDragging = true
+                            dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
+                        },
+                        onDragEnd = {
+                            if (duration > 0L) {
+                                onSeekTo((duration * dragFraction).toLong())
+                            }
+                            isDragging = false
+                        },
+                        onDragCancel = {
+                            isDragging = false
+                        },
+                        onHorizontalDrag = { change, _ ->
+                            change.consume()
+                            dragFraction = (change.position.x / size.width).coerceIn(0f, 1f)
+                        }
+                    )
+                },
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            val trackHeight = if (compact) 2.dp else 3.dp
+            val widthPx = constraints.maxWidth.toFloat()
+
+            // Inactive track groove
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(trackHeight / 2))
+                    .background(Color(0xFF1E2636)),
+            )
+
+            // Active track (played progress)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(currentFraction)
+                    .height(trackHeight)
+                    .clip(RoundedCornerShape(trackHeight / 2))
+                    .background(Color.White),
+            )
+
+            // Sleek user-friendly scrubber thumb
+            if (thumbSize > 0.dp) {
+                val density = LocalDensity.current
+                val thumbPx = with(density) { thumbSize.toPx() }
+                val thumbOffset = ((widthPx * currentFraction) - (thumbPx / 2f))
+                    .coerceIn(0f, (widthPx - thumbPx).coerceAtLeast(0f))
+                Box(
+                    modifier = Modifier
+                        .offset { IntOffset(thumbOffset.toInt(), 0) }
+                        .size(thumbSize)
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .border(
+                            width = if (isDragging) 2.dp else 1.5.dp,
+                            color = Color(0xFF0C1017),
+                            shape = CircleShape,
+                        ),
+                )
+            }
+        }
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = formatDuration(position),
-                color = Color(0xFFA0AAB8),
+                text = formatDuration(displayPosition),
+                color = if (isDragging) Color.White else Color(0xFFA0AAB8),
                 fontFamily = FontFamily.Monospace,
                 fontSize = if (compact) 10.sp else 12.sp,
+                fontWeight = if (isDragging) FontWeight.Bold else FontWeight.Normal,
             )
             Text(
                 text = formatDuration(duration),

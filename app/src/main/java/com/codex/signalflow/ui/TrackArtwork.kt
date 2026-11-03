@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.MusicNote
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.SubcomposeAsyncImage
 import coil.request.ImageRequest
+import com.codex.signalflow.R
 import com.codex.signalflow.data.TrackRecord
 import com.codex.signalflow.source.RemoteTrackCandidate
 
@@ -83,17 +85,18 @@ private fun DedSecArtworkFallback(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF0F141C))
+            .background(Color(0xFF070A0F))
             .scanlineOverlay(lineColor = Color(0x15FFFFFF), stepPx = 4f),
         contentAlignment = Alignment.Center,
     ) {
         if (size >= 80.dp) {
-            Text(
-                text = initial,
-                color = Color.White,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = (size.value * 0.35f).sp,
+            SubcomposeAsyncImage(
+                model = R.drawable.dedsec_emblem,
+                contentDescription = "DedSec Emblem",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp),
             )
         } else {
             Icon(

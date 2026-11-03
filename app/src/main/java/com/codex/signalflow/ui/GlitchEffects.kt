@@ -8,6 +8,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -34,7 +35,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
@@ -96,9 +100,6 @@ fun Modifier.tactileClickable(
         )
 }
 
-/**
- * Backward compatibility alias for glitchClickable.
- */
 @Composable
 fun Modifier.glitchClickable(
     enabled: Boolean = true,
@@ -106,77 +107,124 @@ fun Modifier.glitchClickable(
 ): Modifier = this.tactileClickable(enabled = enabled, onClick = onClick)
 
 /**
- * Animated background with black and silver digital noise, CRT scanlines, and cyber mesh.
+ * Prominent animated background with monochrome CRT scanlines, sweeping radar beam,
+ * cyber mesh, and silver glitch bands.
  */
 @Composable
 fun Modifier.dedsecNoiseBackground(): Modifier {
     val transition = rememberInfiniteTransition(label = "dedsec_noise")
-    val jitterY by transition.animateFloat(
+    val sweepProgress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "sweep_progress",
+    )
+    val glitchPhase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 100f,
         animationSpec = infiniteRepeatable(
-            animation = tween(1400, easing = LinearEasing),
+            animation = tween(800, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
-        label = "noise_jitter",
+        label = "glitch_phase",
     )
     val flickerAlpha by transition.animateFloat(
-        initialValue = 0.03f,
-        targetValue = 0.09f,
+        initialValue = 0.12f,
+        targetValue = 0.28f,
         animationSpec = infiniteRepeatable(
-            animation = tween(220, easing = LinearEasing),
+            animation = tween(120, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
         ),
-        label = "noise_flicker",
+        label = "flicker_alpha",
     )
 
     return this
         .background(Color(0xFF040609))
         .drawWithContent {
-            drawContent()
-            // 1. Cyber mesh grid (24dp)
+            // 1. Procedural cyber mesh grid (24dp)
             val step = 24.dp.toPx()
             val cols = (size.width / step).toInt()
             val rows = (size.height / step).toInt()
             for (c in 0..cols) {
                 val x = c * step
-                drawLine(Color(0x09FFFFFF), Offset(x, 0f), Offset(x, size.height), strokeWidth = 1f)
+                drawLine(Color(0x15FFFFFF), Offset(x, 0f), Offset(x, size.height), strokeWidth = 1f)
             }
             for (r in 0..rows) {
                 val y = r * step
-                drawLine(Color(0x09FFFFFF), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
+                drawLine(Color(0x15FFFFFF), Offset(0f, y), Offset(size.width, y), strokeWidth = 1f)
             }
 
-            // 2. Horizontal CRT scanlines
+            // 2. Sweeping CRT radar beam (underneath)
+            val sweepY = sweepProgress * size.height
+            drawRect(
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        Color.Transparent,
+                        Color(0xFFD0DCF0).copy(alpha = flickerAlpha * 0.7f),
+                        Color(0xFFFFFFFF).copy(alpha = flickerAlpha),
+                        Color(0xFFD0DCF0).copy(alpha = flickerAlpha * 0.7f),
+                        Color.Transparent,
+                    ),
+                    startY = sweepY - 18.dp.toPx(),
+                    endY = sweepY + 18.dp.toPx(),
+                ),
+                topLeft = Offset(0f, sweepY - 18.dp.toPx()),
+                size = Size(size.width, 36.dp.toPx()),
+            )
+
+            // 3. Dynamic silver glitch bands
+            val band1 = ((glitchPhase * 19.3f) % size.height)
+            val band2 = ((glitchPhase * 43.7f) % size.height)
+            drawRect(
+                color = Color(0xFFD8E4F2).copy(alpha = flickerAlpha * 0.9f),
+                topLeft = Offset(0f, band1),
+                size = Size(size.width, 3.dp.toPx()),
+            )
+            drawRect(
+                color = Color(0xFFB5C8DE).copy(alpha = flickerAlpha * 0.7f),
+                topLeft = Offset(0f, band2),
+                size = Size(size.width, 2.dp.toPx()),
+            )
+
+            // 4. Render child content
+            drawContent()
+
+            // 5. Overlay fine CRT scanlines (over foreground for authentic CRT glass look)
             val scanStep = 4.dp.toPx()
             val scanCount = (size.height / scanStep).toInt()
             for (s in 0..scanCount) {
                 val sy = s * scanStep
-                drawLine(Color(0x0AFFFFFF), Offset(0f, sy), Offset(size.width, sy), strokeWidth = 1f)
+                drawLine(Color(0x18FFFFFF), Offset(0f, sy), Offset(size.width, sy), strokeWidth = 1f)
             }
 
-            // 3. Dynamic silver glitch bands
-            val bandY1 = ((jitterY * 7.3f) % size.height)
-            val bandY2 = ((jitterY * 13.7f) % size.height)
-            drawRect(
-                color = Color(0xFFD6E2F0).copy(alpha = flickerAlpha),
-                topLeft = Offset(0f, bandY1),
-                size = Size(size.width, 2.5.dp.toPx()),
+            // 6. Sweeping phosphor raster line (over foreground)
+            drawLine(
+                color = Color(0x35FFFFFF),
+                start = Offset(0f, sweepY),
+                end = Offset(size.width, sweepY),
+                strokeWidth = 1.5f,
             )
-            drawRect(
-                color = Color(0xFFA8BDD6).copy(alpha = flickerAlpha * 0.6f),
-                topLeft = Offset(0f, bandY2),
-                size = Size(size.width, 1.5.dp.toPx()),
+
+            // 7. Dynamic VHS glitch flicker jump line
+            val vhsJump = ((glitchPhase * 53.9f) % size.height)
+            drawLine(
+                color = Color(0x28FFFFFF),
+                start = Offset(0f, vhsJump),
+                end = Offset(size.width, vhsJump),
+                strokeWidth = 2f,
             )
         }
 }
 
 /**
- * Static scanline overlay helper.
+ * Scanline overlay helper.
  */
 fun Modifier.scanlineOverlay(
-    lineColor: Color = Color(0x12FFFFFF),
-    stepPx: Float = 5f,
+    lineColor: Color = Color(0x14FFFFFF),
+    stepPx: Float = 4f,
 ): Modifier = this.drawWithContent {
     drawContent()
     val count = (size.height / stepPx).toInt()
@@ -192,7 +240,7 @@ fun Modifier.scanlineOverlay(
 }
 
 /**
- * Corner tick mark painter for cards and viewfinders.
+ * Corner tick mark painter.
  */
 fun Modifier.techCornerMarks(
     markColor: Color = Color(0x66FFFFFF),
@@ -216,7 +264,7 @@ fun Modifier.techCornerMarks(
 }
 
 /**
- * Tactile Button with solid podlozhka container, sharp borders, and spring physics.
+ * Tactile Button with solid podlozhka container and spring physics.
  */
 @Composable
 fun TactileButton(
@@ -317,4 +365,72 @@ fun rememberBlinkingCursor(): String {
         label = "cursor_blink",
     )
     return if (alpha > 0.45f) "█" else " "
+}
+
+// ==========================================
+// Custom DedSec Cyber Navigation Vector Icons
+// ==========================================
+
+@Composable
+fun DedSecTerminalNavIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        // Terminal Prompt ">"
+        drawLine(tint, Offset(w * 0.18f, h * 0.28f), Offset(w * 0.48f, h * 0.50f), strokeWidth = 2.2f, cap = StrokeCap.Square)
+        drawLine(tint, Offset(w * 0.48f, h * 0.50f), Offset(w * 0.18f, h * 0.72f), strokeWidth = 2.2f, cap = StrokeCap.Square)
+        // Cursor Block "_"
+        drawLine(tint, Offset(w * 0.56f, h * 0.72f), Offset(w * 0.88f, h * 0.72f), strokeWidth = 2.5f, cap = StrokeCap.Square)
+    }
+}
+
+@Composable
+fun DedSecSearchNavIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        val c = Offset(w * 0.46f, h * 0.46f)
+        val r = w * 0.32f
+        // Reticle circle
+        drawCircle(color = tint, radius = r, center = c, style = Stroke(width = 1.8f))
+        // Center crosshair
+        drawLine(tint, Offset(c.x - r * 0.45f, c.y), Offset(c.x + r * 0.45f, c.y), strokeWidth = 1.8f)
+        drawLine(tint, Offset(c.x, c.y - r * 0.45f), Offset(c.x, c.y + r * 0.45f), strokeWidth = 1.8f)
+        // Scanner handle
+        drawLine(tint, Offset(c.x + r * 0.75f, c.y + r * 0.75f), Offset(w * 0.90f, h * 0.90f), strokeWidth = 2.4f, cap = StrokeCap.Square)
+    }
+}
+
+@Composable
+fun DedSecLibraryNavIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        // Audio cassette / drive frame
+        drawRect(
+            color = tint,
+            topLeft = Offset(w * 0.12f, h * 0.22f),
+            size = Size(w * 0.76f, h * 0.56f),
+            style = Stroke(width = 1.8f),
+        )
+        // Dual audio reels
+        drawCircle(color = tint, radius = w * 0.08f, center = Offset(w * 0.34f, h * 0.50f))
+        drawCircle(color = tint, radius = w * 0.08f, center = Offset(w * 0.66f, h * 0.50f))
+        // Center tape bridge
+        drawLine(tint, Offset(w * 0.34f, h * 0.64f), Offset(w * 0.66f, h * 0.64f), strokeWidth = 1.5f)
+    }
+}
+
+@Composable
+fun DedSecPlaylistsNavIcon(tint: Color, modifier: Modifier = Modifier) {
+    Canvas(modifier = modifier.size(20.dp)) {
+        val w = size.width
+        val h = size.height
+        // Stacked queue decks
+        drawLine(tint, Offset(w * 0.15f, h * 0.28f), Offset(w * 0.85f, h * 0.28f), strokeWidth = 2.2f, cap = StrokeCap.Square)
+        drawLine(tint, Offset(w * 0.15f, h * 0.50f), Offset(w * 0.65f, h * 0.50f), strokeWidth = 2.2f, cap = StrokeCap.Square)
+        drawLine(tint, Offset(w * 0.15f, h * 0.72f), Offset(w * 0.85f, h * 0.72f), strokeWidth = 2.2f, cap = StrokeCap.Square)
+        // Play indicator triangle on the second line
+        drawCircle(color = tint, radius = w * 0.07f, center = Offset(w * 0.80f, h * 0.50f))
+    }
 }
