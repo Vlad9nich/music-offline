@@ -29,35 +29,39 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Cranium: 100% Symmetrical, human-proportioned DedSec hacker skull (stationary)
-// Exactly 27 characters wide per line
+// Cranium: Razor-sharp, menacing, anatomical DedSec skull (stationary)
+// Curved anatomical dome (not flat/blunt), sharp cheekbones, cyber eye sockets
 private val SKULL_CRANIUM = """
-|          uuuuuuu
-|      uu§§§§§§§§§§§uu
-|   uu§§§§§§§§§§§§§§§§§uu
-|  u§§§§§§§§§§§§§§§§§§§§§u
-|  §§§§§"   "§§§"   "§§§§§
-|  "§§§"     u§u     "§§§"
-|   §§§u     u§u     u§§§
-|   §§§u    u§§§u    u§§§
-|    "§§§§uu§   §uu§§§§"
-|     "§§§§§"   "§§§§§"
-|       u§§§§§u§§§§§u
-|       | | | | | | |
-""".trimMargin("|").trim('\n').replace('§', '$')
+|           .---.
+|         .'  _  '.
+|        /  .' '.  \
+|       /  /     \  \
+|      /  /   ^   \  \
+|     |  /   / \   \  |
+|    /| |   /   \   | |\
+|   / | |  .-. .-.  | | \
+|  <  | | / X\ /X \ | |  >
+|   \  \  \___/ \___/  /  /
+|    \  \   _/\_   /  /
+|     \  \ / \/ \ /  /
+|      \__\\_  _//__/
+|        \ `-...-' /
+|         \ [][][] /
+""".trimMargin("|").trim('\n')
 
-// Mandible / Jaw: Lower teeth & chin, articulates downward when laughing
-// Exactly 27 characters wide per line, cursor '█' blinks in dead center of chin
+// Mandible / Jaw: Lower cyber teeth and tapered sharp chin, articulates downward when laughing
 private fun getSkullJaw(cursorChar: String) = """
-|       | | | | | | |
-|        u§§§§§${cursorChar}§§§§u
-|         "§§§§§§§"
-""".trimMargin("|").trim('\n').replace('§', '$')
+|         / [][][] \
+|        /  \===/  \
+|        \    ${cursorChar}    /
+|         \_______/
+|           \___/
+""".trimMargin("|").trim('\n')
 
 /**
- * Natural laughing DedSec ASCII Skull (Option A: Symmetrical Human DedSec Skull):
- * - Anatomically human, 100% symmetrical front-facing skull (no 3/4 alien tilt).
- * - Upper teeth meet lower teeth seamlessly when mouth is closed.
+ * Natural laughing DedSec ASCII Skull:
+ * - Razor-sharp, menacing cyberpunk human skull with anatomically curved cranial dome.
+ * - Upper cyber-teeth meet lower cyber-teeth seamlessly when mouth is closed.
  * - Dynamic rhythmic laughter: mouth opens and articulates downward with varied cadence.
  * - Central blinking cursor block '█' and authentic GNU Emacs status line.
  */
@@ -84,7 +88,7 @@ fun AsciiSkullCard(
                 8f at 1600        // Chuckle 3
                 0f at 1720        // Closed
                 0f at 2000        // Inhale breath
-                16f at 2180       // Wide open laughter!
+                16f at 2180       // Wide open hearty laughter!
                 11f at 2280
                 16f at 2400       // Hearty laugh burst
                 9f at 2520
@@ -108,7 +112,7 @@ fun AsciiSkullCard(
         ),
         label = "cursor_blink",
     )
-    val cursorChar = if (cursorBlink > 0.5f) "█" else "$"
+    val cursorChar = if (cursorBlink > 0.5f) "█" else " "
 
     Box(
         modifier = modifier
@@ -128,14 +132,14 @@ fun AsciiSkullCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(235.dp),
+                    .height(265.dp),
                 contentAlignment = Alignment.TopCenter,
             ) {
                 Column(
                     modifier = Modifier.wrapContentSize(),
                     horizontalAlignment = Alignment.Start,
                 ) {
-                    // Cranium (stationary upper skull and upper teeth)
+                    // Cranium (stationary upper skull dome and upper teeth)
                     Text(
                         text = SKULL_CRANIUM,
                         color = Color(0xFFD6E2F0),
@@ -150,7 +154,7 @@ fun AsciiSkullCard(
                     // Articulated jaw gap (opens and closes when laughing)
                     Spacer(modifier = Modifier.height(jawOffset.dp))
 
-                    // Jaw (lower teeth and chin with blinking cursor)
+                    // Jaw (lower teeth and tapered chin with blinking cursor)
                     Text(
                         text = getSkullJaw(cursorChar),
                         color = Color(0xFFD6E2F0),
@@ -166,7 +170,7 @@ fun AsciiSkullCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Emacs / Terminal Bottom Status Bar from reference: -UUU:**--F1   skull.txt
+            // Emacs / Terminal Bottom Status Bar: -UUU:**--F1   skull.txt
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
