@@ -2,6 +2,8 @@ package com.codex.signalflow.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,6 +29,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -81,8 +84,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -123,8 +128,8 @@ private enum class AppTab(
     val icon: ImageVector,
 ) {
     Home("Главная", Icons.Rounded.Home),
-    Search("Парсер", Icons.Rounded.Search),
-    Local("Локальные", Icons.Rounded.LibraryMusic),
+    Search("Поиск", Icons.Rounded.Search),
+    Local("Библиотека", Icons.Rounded.LibraryMusic),
     Playlists("Плейлисты", Icons.Rounded.QueueMusic),
 }
 
@@ -178,8 +183,7 @@ fun SignalFlowApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF040507))
-            .scanlineOverlay(),
+            .dedsecNoiseBackground(),
     ) {
 
         Scaffold(
@@ -295,31 +299,41 @@ private fun AppHeader() {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            text = "[ DEDSEC // YaNeoDex ]",
-            color = Color.White,
-            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 15.sp,
-            letterSpacing = 1.sp,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(7.dp)
+                    .background(Color.White, CutSmallShape),
+            )
+            Text(
+                text = "YaNeoDex • Терминал",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 14.sp,
+                letterSpacing = 0.5.sp,
+            )
+        }
         Box(
             modifier = Modifier
-                .clip(CutCornerShape(4.dp))
-                .border(1.dp, Color(0xFF384357), CutCornerShape(4.dp))
-                .background(Color(0xFF0E121A))
+                .clip(CutCornerShape(3.dp))
+                .border(1.dp, Color(0xFF283446), CutCornerShape(3.dp))
+                .background(Color(0xFF0F141E))
                 .padding(horizontal = 8.dp, vertical = 3.dp),
         ) {
             Text(
-                text = "ONLINE 0x01",
-                color = Color(0xFFA0ACB8),
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                text = "В СЕТИ",
+                color = Color(0xFFA5B4C7),
+                fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Bold,
             )
         }
     }
@@ -327,33 +341,61 @@ private fun AppHeader() {
 
 @Composable
 private fun BottomNavigation(currentTab: AppTab, onSelect: (AppTab) -> Unit) {
-    NavigationBar(
-        containerColor = Color(0xFF06070B),
-        contentColor = Color.White,
-        modifier = Modifier.border(1.dp, Color(0xFF1B202B)),
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(Color(0xFF080B10))
+            .border(width = 1.dp, color = Color(0xFF1E2634))
+            .navigationBarsPadding()
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         AppTab.entries.forEach { tab ->
             val isSelected = tab == currentTab
-            NavigationBarItem(
-                selected = isSelected,
-                onClick = { onSelect(tab) },
-                icon = { Icon(tab.icon, contentDescription = tab.label) },
-                label = {
-                    Text(
-                        text = tab.label.uppercase(),
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                        fontSize = 10.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    )
-                },
-                colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = Color.Black,
-                    selectedTextColor = Color.White,
-                    indicatorColor = Color.White,
-                    unselectedIconColor = Color(0xFF6B7588),
-                    unselectedTextColor = Color(0xFF6B7588),
-                ),
+            val scale by animateFloatAsState(
+                targetValue = if (isSelected) 1.02f else 0.98f,
+                animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+                label = "tab_scale",
             )
+            val bgColor = if (isSelected) Color.White else Color(0xFF10151E)
+            val contentColor = if (isSelected) Color.Black else Color(0xFF8E9BAE)
+            val borderColor = if (isSelected) Color.White else Color(0xFF222C3A)
+
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .graphicsLayer {
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .clip(CutButtonShape)
+                    .background(bgColor)
+                    .border(1.dp, borderColor, CutButtonShape)
+                    .tactileClickable(onClick = { onSelect(tab) })
+                    .padding(vertical = 8.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        imageVector = tab.icon,
+                        contentDescription = tab.label,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Spacer(Modifier.height(3.dp))
+                    Text(
+                        text = tab.label,
+                        color = contentColor,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    )
+                }
+            }
         }
     }
 }
@@ -554,29 +596,18 @@ internal fun TrackRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(TrackRowShape)
-            .background(Color(0xFF080B0F))
-            .border(1.dp, Color(0xFF1E2430), TrackRowShape)
-            .glitchClickable(onClick = onPrimary)
+            .background(Color(0xFF090D14))
+            .border(1.dp, Color(0xFF1E2736), TrackRowShape)
+            .tactileClickable(onClick = onPrimary)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        Box(
-            modifier = Modifier
-                .size(36.dp)
-                .clip(CutCornerShape(4.dp))
-                .background(Color(0xFF121620))
-                .border(1.dp, Color(0xFF2B3342), CutCornerShape(4.dp)),
-            contentAlignment = Alignment.Center,
-        ) {
-            Text(
-                text = track.title.take(1).uppercase(),
-                color = Color.White,
-                fontWeight = FontWeight.Bold,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                fontSize = 13.sp,
-            )
-        }
+        TrackArtwork(
+            track = track,
+            size = 40.dp,
+            shape = CutSmallShape,
+        )
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
@@ -584,13 +615,13 @@ internal fun TrackRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 fontWeight = FontWeight.Bold,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontFamily = FontFamily.Monospace,
                 fontSize = 13.sp,
             )
             Text(
-                text = "${track.artist} // ${formatDuration(track.durationMs)}",
-                color = Color(0xFF7A8498),
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                text = "${track.artist} • ${formatDuration(track.durationMs)}",
+                color = Color(0xFF808D9F),
+                fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -872,10 +903,10 @@ internal fun PortalCard(
     Card(
         modifier = Modifier
             .width(180.dp)
-            .glitchClickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF080B0F)),
+            .tactileClickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF090D14)),
         shape = PanelShape,
-        border = BorderStroke(1.dp, Color(0xFF242C3A)),
+        border = BorderStroke(1.dp, Color(0xFF222B38)),
     ) {
         Column(
             modifier = Modifier
@@ -884,16 +915,16 @@ internal fun PortalCard(
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
-                text = "[ ${title.uppercase()} ]",
+                text = title.uppercase(),
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontFamily = FontFamily.Monospace,
                 fontSize = 12.sp,
             )
             Text(
                 text = caption,
-                color = Color(0xFF828C9F),
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                color = Color(0xFF8B97AB),
+                fontFamily = FontFamily.Monospace,
                 fontSize = 11.sp,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
@@ -914,38 +945,27 @@ internal fun CompactTrackCard(
             .fillMaxWidth()
             .then(
                 if (onClick != null) {
-                    Modifier.glitchClickable(onClick = onClick)
+                    Modifier.tactileClickable(onClick = onClick)
                 } else {
                     Modifier
                 },
             ),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF080B0F)),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF090D14)),
         shape = TrackRowShape,
-        border = BorderStroke(1.dp, Color(0xFF1E2430)),
+        border = BorderStroke(1.dp, Color(0xFF1E2634)),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CutCornerShape(4.dp))
-                    .background(Color(0xFF121620))
-                    .border(1.dp, Color(0xFF283040), CutCornerShape(4.dp)),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = track.title.take(1).uppercase(),
-                    color = Color.White,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
-                )
-            }
+            TrackArtwork(
+                track = track,
+                size = 36.dp,
+                shape = CutSmallShape,
+            )
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.title,
@@ -953,13 +973,13 @@ internal fun CompactTrackCard(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontFamily = FontFamily.Monospace,
                     fontSize = 12.sp,
                 )
                 Text(
-                    text = "${track.artist} // $meta",
-                    color = Color(0xFF7A8498),
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    text = "${track.artist} • $meta",
+                    color = Color(0xFF808D9F),
+                    fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -977,18 +997,24 @@ internal fun RemoteTrackRow(
     onPreview: () -> Unit,
     onDownload: () -> Unit,
 ) {
-    PanelCard(title = "FIND // ${result.sourceId}", accent = Color.White) {
+    PanelCard(title = "ИСТОЧНИК • ${result.sourceId.uppercase()}", accent = Color.White) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
+            TrackArtwork(
+                remoteTrack = result,
+                size = 40.dp,
+                shape = CutSmallShape,
+            )
+            Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = result.title,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -996,8 +1022,8 @@ internal fun RemoteTrackRow(
                 Spacer(Modifier.height(2.dp))
                 Text(
                     text = result.artist,
-                    color = Color(0xFF7A8498),
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    color = Color(0xFF828FA2),
+                    fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
                 )
             }
@@ -1066,11 +1092,11 @@ internal fun HeroPanel(
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 0.8.sp,
+                    letterSpacing = 0.5.sp,
                 )
                 Text(
-                    text = "// READY",
-                    color = Color(0xFF7A8598),
+                    text = "ГОТОВО",
+                    color = Color(0xFF7E8C9E),
                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                     fontSize = 10.sp,
                 )
@@ -1152,29 +1178,13 @@ internal fun PrimaryActionButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier
-            .clip(CutButtonShape)
-            .background(Color.White)
-            .glitchClickable(onClick = onClick)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = label, tint = Color.Black, modifier = Modifier.size(16.dp))
-            Text(
-                text = "[ ${label.uppercase()} ]",
-                color = Color.Black,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
-                fontSize = 12.sp,
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-    }
+    TactileButton(
+        onClick = onClick,
+        modifier = modifier,
+        inverted = true,
+        icon = icon,
+        text = label,
+    )
 }
 
 @Composable
@@ -1184,38 +1194,12 @@ internal fun SecondaryActionButton(
     onClick: () -> Unit,
     compact: Boolean = false,
 ) {
-    Box(
-        modifier = Modifier
-            .clip(CutButtonShape)
-            .background(PanelFillAlt)
-            .border(1.dp, Color(0xFF2E3648), CutButtonShape)
-            .glitchClickable(onClick = onClick)
-            .padding(
-                horizontal = if (compact) 8.dp else 12.dp,
-                vertical = if (compact) 6.dp else 8.dp,
-            ),
-    ) {
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                icon,
-                contentDescription = label,
-                tint = Color.White,
-                modifier = Modifier.size(if (compact) 14.dp else 16.dp),
-            )
-            Text(
-                text = "[ ${label.uppercase()} ]",
-                color = Color.White,
-                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                fontWeight = FontWeight.Medium,
-                fontSize = if (compact) 10.sp else 12.sp,
-                maxLines = 1,
-                softWrap = false,
-            )
-        }
-    }
+    TactileButton(
+        onClick = onClick,
+        inverted = false,
+        icon = icon,
+        text = label,
+    )
 }
 
 @Composable

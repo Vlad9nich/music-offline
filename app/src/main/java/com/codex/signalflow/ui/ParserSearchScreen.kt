@@ -55,9 +55,9 @@ internal fun ParserSearchScreen(
                     queryDraft = it
                     onSourceQueryChange(it)
                 },
-                title = "STREAM_HUNTER // QUERY",
-                placeholder = "ENTER ARTIST OR TRACK...",
-                buttonLabel = "SEARCH",
+                title = "ПОИСК В СЕТИ",
+                placeholder = "ВВЕДИТЕ АРТИСТА ИЛИ ТРЕК...",
+                buttonLabel = "ПОИСК",
                 buttonIcon = Icons.Rounded.Search,
                 onSearch = { onSearchSources(queryDraft) },
             )
@@ -67,7 +67,7 @@ internal fun ParserSearchScreen(
                 status = if (selectedArtist == null) {
                     uiState.sourceStatus
                 } else {
-                    "FILTER: $selectedArtist"
+                    "ФИЛЬТР: $selectedArtist"
                 },
                 resultsCount = filteredSourceResults.size,
             )
@@ -77,7 +77,7 @@ internal fun ParserSearchScreen(
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     item {
                         FilterChip(
-                            label = "ALL",
+                            label = "ВСЕ",
                             selected = selectedArtist == null,
                             onClick = { selectedArtist = null },
                         )
@@ -95,15 +95,15 @@ internal fun ParserSearchScreen(
         if (uiState.sourceResults.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "STANDBY",
-                    body = "// INITIATE SEARCH TO INTERCEPT REMOTE STREAM METADATA",
+                    title = "ПОИСК НЕ ВЫПОЛНЕН",
+                    body = "ВВЕДИТЕ ЗАПРОС ВЫШЕ ДЛЯ ПОИСКА ТРЕКОВ В СЕТИ",
                 )
             }
         } else if (filteredSourceResults.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "FILTER_EMPTY",
-                    body = "// NO CANDIDATES MATCH FILTER",
+                    title = "НЕТ РЕЗУЛЬТАТОВ",
+                    body = "НЕТ СОВПАДЕНИЙ С ВЫБРАННЫМ ФИЛЬТРОМ",
                 )
             }
         } else {

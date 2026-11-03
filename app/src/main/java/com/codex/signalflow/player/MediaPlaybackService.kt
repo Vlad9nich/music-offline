@@ -230,16 +230,16 @@ class MediaPlaybackService : MediaSessionService() {
         val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
         val basePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#09111A")
+            color = Color.parseColor("#0A0D13")
         }
         val pulsePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#FF4D8D")
-            alpha = 230
+            color = Color.parseColor("#FFFFFF")
+            alpha = 240
         }
         val ringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            color = Color.parseColor("#42F5FF")
+            color = Color.parseColor("#8E9DB0")
             style = Paint.Style.STROKE
-            strokeWidth = 10f
+            strokeWidth = 6f
         }
 
         canvas.drawRect(0f, 0f, size.toFloat(), size.toFloat(), basePaint)

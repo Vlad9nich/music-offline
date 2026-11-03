@@ -2,10 +2,8 @@ package com.codex.signalflow.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +18,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FastForward
@@ -45,10 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -71,33 +67,34 @@ internal fun PlayerDock(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 6.dp)
-            .glitchClickable(onClick = onExpand),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0C10)),
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .tactileClickable(onClick = onExpand),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0C1017)),
         shape = CutPanelShape,
-        border = BorderStroke(1.dp, Color(0xFF2E3544)),
+        border = BorderStroke(1.dp, Color(0xFF263140)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // Status indicator mark
-                Text(
-                    text = if (state.isPlaying) "▶ " else "■ ",
-                    color = Color.White,
-                    fontFamily = FontFamily.Monospace,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 12.sp,
+                // Real Track Cover Artwork
+                TrackArtwork(
+                    track = state.currentTrack,
+                    size = 42.dp,
+                    shape = CutSmallShape,
                 )
+
+                // Track Title and Artist
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = state.currentTrack?.title ?: "STANDBY // NO_TRACK",
+                        text = state.currentTrack?.title ?: "Трек не выбран",
                         color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
@@ -107,23 +104,19 @@ internal fun PlayerDock(
                     )
                     Text(
                         text = state.currentTrack?.artist ?: state.queueLabel,
-                        color = Color(0xFF8A93A6),
+                        color = Color(0xFF8B97AB),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontFamily = FontFamily.Monospace,
-                        style = MaterialTheme.typography.bodySmall,
+                        fontSize = 11.sp,
                     )
                 }
+
+                // Tactile Playback Controls
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    MiniControl(
-                        icon = Icons.Rounded.Shuffle,
-                        active = state.isShuffleEnabled,
-                        enabled = state.queueSize > 1,
-                        onClick = onToggleShuffle,
-                    )
                     MiniControl(
                         icon = Icons.Rounded.FastRewind,
                         active = state.hasPrevious,
@@ -144,6 +137,7 @@ internal fun PlayerDock(
                     )
                 }
             }
+
             PlaybackTimeline(
                 state = state,
                 onSeekTo = onSeekTo,
@@ -170,8 +164,7 @@ internal fun ExpandedPlayerOverlay(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF040507))
-            .scanlineOverlay(),
+            .dedsecNoiseBackground(),
     ) {
         Column(
             modifier = Modifier
@@ -179,7 +172,7 @@ internal fun ExpandedPlayerOverlay(
                 .statusBarsPadding()
                 .navigationBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.SpaceBetween,
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             // Top Navigation / Header
@@ -188,48 +181,52 @@ internal fun ExpandedPlayerOverlay(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TactileButton(
+                    onClick = onDismiss,
+                    icon = Icons.Rounded.KeyboardArrowDown,
+                    text = "СВЕРНУТЬ",
+                )
+                Text(
+                    text = "YaNeoDex • Плеер",
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 13.sp,
+                    letterSpacing = 0.5.sp,
+                )
+                Box(
+                    modifier = Modifier
+                        .background(Color(0xFF131822), CutSmallShape)
+                        .border(1.dp, Color(0xFF283446), CutSmallShape)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
                     Text(
-                        text = "[ DEDSEC_AUDIO ]",
-                        color = Color.White,
+                        text = if (state.isPlaying) "В СЕТИ" else "ПАУЗА",
+                        color = if (state.isPlaying) Color.White else Color(0xFF909EB0),
                         fontFamily = FontFamily.Monospace,
+                        fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        letterSpacing = 1.sp,
-                    )
-                    Text(
-                        text = if (state.isPlaying) "ONLINE" else "PAUSED",
-                        color = Color(0xFFA0AAB8),
-                        fontFamily = FontFamily.Monospace,
-                        fontSize = 11.sp,
                     )
                 }
-                MiniControl(icon = Icons.Rounded.KeyboardArrowDown, active = false, onClick = onDismiss)
             }
 
-            Spacer(modifier = Modifier.weight(0.1f))
-
-            // Central Visualizer & Track Info
+            // Central Cover & Track Details
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                CyberVisualizer(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(200.dp),
-                    bars = visualizerState.bars,
-                    isPlaying = state.isPlaying,
-                    isUsingFallback = visualizerState.isUsingFallback,
-                    peakIntensity = visualizerState.peakIntensity,
-                    bassIntensity = visualizerState.bassIntensity,
-                    glowPhase = visualizerState.glowPhase,
+                // Large Track Cover with DedSec Viewfinder Corner Marks
+                TrackArtwork(
+                    track = state.currentTrack,
+                    size = 250.dp,
+                    shape = CutPanelShape,
+                    showCornerTicks = true,
                 )
 
-                // Track Title with Terminal Blinking Cursor
+                // Track Title with Blinking Terminal Block
                 Text(
-                    text = (state.currentTrack?.title ?: "NO TRACK LOADED") + cursor,
+                    text = (state.currentTrack?.title ?: "Трек не выбран") + cursor,
                     color = Color.White,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
@@ -238,10 +235,10 @@ internal fun ExpandedPlayerOverlay(
                     overflow = TextOverflow.Ellipsis,
                 )
 
-                // Artist & Queue
+                // Artist & Source Badge
                 Text(
-                    text = "// " + (state.currentTrack?.artist ?: state.queueLabel).uppercase(),
-                    color = Color(0xFF8A93A6),
+                    text = state.currentTrack?.artist ?: state.queueLabel,
+                    color = Color(0xFFA2AFC2),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 13.sp,
                     maxLines = 1,
@@ -255,13 +252,11 @@ internal fun ExpandedPlayerOverlay(
                 )
             }
 
-            Spacer(modifier = Modifier.weight(0.2f))
-
-            // Large Controls Bar (Cut Corners, Black & White Inverted)
+            // Large Tactile Playback Controls
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 24.dp),
+                    .padding(bottom = 20.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -270,7 +265,7 @@ internal fun ExpandedPlayerOverlay(
                     active = state.isShuffleEnabled,
                     enabled = state.queueSize > 1,
                     onClick = onToggleShuffle,
-                    size = 50,
+                    size = 52,
                 )
                 LargePlayerControl(
                     icon = Icons.Rounded.FastRewind,
@@ -369,98 +364,6 @@ internal fun PlaybackTimeline(
     }
 }
 
-/**
- * High-contrast digital equalizer bars with Watch Dogs 2 terminal aesthetic.
- */
-@Composable
-internal fun CyberVisualizer(
-    modifier: Modifier = Modifier,
-    bars: List<Float>,
-    isPlaying: Boolean,
-    isUsingFallback: Boolean,
-    peakIntensity: Float,
-    bassIntensity: Float,
-    glowPhase: Float,
-) {
-    val normalizedBars = if (bars.isEmpty()) List(VisualizerUiState.BAR_COUNT) { 0.14f } else bars
-
-    Box(
-        modifier = modifier
-            .clip(CutCornerShape(8.dp))
-            .background(Color(0xFF090B0F))
-            .border(1.dp, Color(0xFF252B37), CutCornerShape(8.dp))
-            .techCornerMarks(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Canvas(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = 14.dp, vertical = 14.dp),
-        ) {
-            val width = size.width
-            val height = size.height
-            val centerY = height / 2f
-            val count = normalizedBars.size.coerceAtLeast(1)
-            val step = width / count
-            val barWidth = (step * 0.72f).coerceAtLeast(3f)
-
-            // Center zero-baseline
-            drawLine(
-                color = Color(0x33FFFFFF),
-                start = Offset(0f, centerY),
-                end = Offset(width, centerY),
-                strokeWidth = 1f,
-                cap = StrokeCap.Square,
-            )
-
-            normalizedBars.forEachIndexed { index, sample ->
-                val amp = sample.coerceIn(0.06f, 1f)
-                val reactiveBoost = if (isPlaying) (1f + bassIntensity * 0.25f + peakIntensity * 0.2f) else 0.5f
-                val barH = (height * 0.44f * amp * reactiveBoost).coerceAtLeast(3f)
-                val x = index * step + (step - barWidth) / 2f
-
-                // Draw digital segments (3px blocks with 1.5px gaps)
-                val segments = (barH / 5f).toInt().coerceAtLeast(1)
-                for (s in 0 until segments) {
-                    val segYTop = centerY - (s + 1) * 5f
-                    val segYBottom = centerY + s * 5f
-
-                    val color = when {
-                        s > segments - 2 && isPlaying -> Color.White
-                        s > segments - 5 -> Color(0xFFD6DBE5)
-                        else -> Color(0xFF707A8C)
-                    }
-
-                    // Upper bar
-                    drawRect(
-                        color = color,
-                        topLeft = Offset(x, segYTop),
-                        size = Size(barWidth, 3.5f),
-                    )
-                    // Lower mirrored bar
-                    drawRect(
-                        color = color.copy(alpha = 0.65f),
-                        topLeft = Offset(x, segYBottom),
-                        size = Size(barWidth, 3.5f),
-                    )
-                }
-            }
-        }
-
-        // Subtitle indicator
-        Text(
-            text = if (isPlaying) "SPECTRUM // ACTIVE" else "SPECTRUM // IDLE",
-            color = Color(0xFF5A6273),
-            fontFamily = FontFamily.Monospace,
-            fontSize = 9.sp,
-            letterSpacing = 1.sp,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 6.dp),
-        )
-    }
-}
-
 @Composable
 internal fun LargePlayerControl(
     icon: ImageVector,
@@ -473,20 +376,20 @@ internal fun LargePlayerControl(
     val shape = CutCornerShape((size / 5).dp)
     val bgColor = when {
         primary && enabled -> Color.White
-        active -> Color(0xFF222836)
-        else -> Color(0xFF0F1218)
+        active -> Color(0xFF222938)
+        else -> Color(0xFF10141C)
     }
     val iconColor = when {
         primary && enabled -> Color.Black
         active -> Color.White
-        !enabled -> Color(0xFF3E4656)
-        else -> Color(0xFFD0D6E2)
+        !enabled -> Color(0xFF3E4758)
+        else -> Color(0xFFD0D7E4)
     }
     val borderColor = when {
         primary -> Color.White
         active -> Color.White
-        !enabled -> Color(0xFF1C212B)
-        else -> Color(0xFF2E3646)
+        !enabled -> Color(0xFF1B222E)
+        else -> Color(0xFF2E384A)
     }
 
     Box(
@@ -495,7 +398,7 @@ internal fun LargePlayerControl(
             .clip(shape)
             .background(bgColor)
             .border(1.dp, borderColor, shape)
-            .glitchClickable(enabled = enabled, onClick = onClick),
+            .tactileClickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(

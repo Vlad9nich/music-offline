@@ -11,6 +11,7 @@ data class TrackRecord(
     val artist: String,
     val durationMs: Long,
     val importedAtEpochMs: Long,
+    val coverUri: String? = null,
 )
 
 @Serializable

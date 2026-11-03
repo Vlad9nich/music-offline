@@ -13,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -49,16 +48,16 @@ internal fun HomeScreen(
         // System Status Hero Panel
         item {
             HeroPanel(
-                title = "SYS_STATUS // ONLINE",
-                subtitle = "STORAGE: ${uiState.tracks.size} TRACKS • QUEUE: ${uiState.selectedPlaylistTracks.size}",
+                title = "СТАТУС: В СЕТИ",
+                subtitle = "ПАМЯТЬ: ${uiState.tracks.size} ТРЕКОВ • ОЧЕРЕДЬ: ${uiState.selectedPlaylistTracks.size}",
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PrimaryActionButton(label = "IMPORT", icon = Icons.Rounded.FolderOpen, onClick = onImportTracks)
-                    SecondaryActionButton(label = "PLAY", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
-                    SecondaryActionButton(label = "SHUFFLE", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
+                    PrimaryActionButton(label = "ИМПОРТ", icon = Icons.Rounded.FolderOpen, onClick = onImportTracks)
+                    SecondaryActionButton(label = "СЛУШАТЬ", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
+                    SecondaryActionButton(label = "МИКС", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
                 }
             }
         }
@@ -68,24 +67,24 @@ internal fun HomeScreen(
             LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     PortalCard(
-                        title = "PARSER",
-                        caption = if (uiState.sourceResults.isEmpty()) "SEARCH ENGINE" else "${uiState.sourceResults.size} STREAM TRACKS",
+                        title = "ПОИСК ТРЕКОВ",
+                        caption = if (uiState.sourceResults.isEmpty()) "ПОТОКОВОЕ СКАЧИВАНИЕ" else "НАЙДЕНО ТРЕКОВ: ${uiState.sourceResults.size}",
                         accent = Color.White,
                         onClick = onOpenParser,
                     )
                 }
                 item {
                     PortalCard(
-                        title = "LOCAL",
-                        caption = "${uiState.tracks.size} FILES READY",
+                        title = "БИБЛИОТЕКА",
+                        caption = "${uiState.tracks.size} ФАЙЛОВ ГОТОВО",
                         accent = Color.White,
                         onClick = onOpenLocal,
                     )
                 }
                 item {
                     PortalCard(
-                        title = "LISTS",
-                        caption = uiState.selectedPlaylistName.uppercase(),
+                        title = "ПЛЕЙЛИСТЫ",
+                        caption = "АКТИВНЫЙ: ${uiState.selectedPlaylistName.uppercase()}",
                         accent = Color.White,
                         onClick = onOpenPlaylists,
                     )
@@ -95,9 +94,9 @@ internal fun HomeScreen(
 
         // Active Player Status Monitor
         item {
-            PanelCard(title = "MONITOR // ACTIVE_DECK", accent = Color.White) {
+            PanelCard(title = "АКТИВНАЯ ДЕКА", accent = Color.White) {
                 Text(
-                    text = playerState.currentTrack?.title ?: "[ STANDBY // AWAITING STREAM ]",
+                    text = playerState.currentTrack?.title ?: "ОЖИДАНИЕ ВЫБОРА ТРЕКА",
                     color = Color.White,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
@@ -105,7 +104,7 @@ internal fun HomeScreen(
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = playerState.currentTrack?.artist ?: "// SELECT TRACK TO ENGAGE AUDIO OUTPUT",
+                    text = playerState.currentTrack?.artist ?: "ВЫБЕРИТЕ ТРЕК ДЛЯ ВОСПРОИЗВЕДЕНИЯ",
                     color = Color(0xFF7A8498),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 11.sp,
@@ -116,20 +115,20 @@ internal fun HomeScreen(
         // Active Playlist Section
         item {
             Text(
-                text = "[ QUEUE // ${uiState.selectedPlaylistName.uppercase()} ]",
+                text = "ОЧЕРЕДЬ: ${uiState.selectedPlaylistName.uppercase()}",
                 color = Color.White,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
-                letterSpacing = 0.8.sp,
+                letterSpacing = 0.5.sp,
             )
         }
 
         if (playlistPreview.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "EMPTY_QUEUE",
-                    body = "// NO TRACKS FOUND IN CURRENT PLAYLIST",
+                    title = "ОЧЕРЕДЬ ПУСТА",
+                    body = "В ТЕКУЩЕМ ПЛЕЙЛИСТЕ НЕТ ТРЕКОВ",
                 )
             }
         } else {
@@ -147,20 +146,20 @@ internal fun HomeScreen(
         item {
             Spacer(Modifier.height(4.dp))
             Text(
-                text = "[ STORAGE // LOCAL_TRACKS (${uiState.tracks.size}) ]",
+                text = "ХРАНИЛИЩЕ: ЛОКАЛЬНЫЕ ТРЕКИ (${uiState.tracks.size})",
                 color = Color.White,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 13.sp,
-                letterSpacing = 0.8.sp,
+                letterSpacing = 0.5.sp,
             )
         }
 
         if (localPreview.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "EMPTY_STORAGE",
-                    body = "// NO LOCAL FILES FOUND. USE [IMPORT] ABOVE",
+                    title = "ХРАНИЛИЩЕ ПУСТО",
+                    body = "ЛОКАЛЬНЫХ ФАЙЛОВ НЕ НАЙДЕНО. НАЖМИТЕ «ИМПОРТ» ВЫШЕ",
                 )
             }
         } else {
@@ -168,7 +167,7 @@ internal fun HomeScreen(
                 CompactTrackCard(
                     track = track,
                     accent = Color.White,
-                    meta = "OFFLINE",
+                    meta = "ОФФЛАЙН",
                     onClick = { onPlayTrack(track.id) },
                 )
             }

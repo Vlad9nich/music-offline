@@ -2,8 +2,6 @@ package com.codex.signalflow.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -11,7 +9,6 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -39,40 +36,40 @@ internal fun LocalLibraryScreen(
             SearchFieldCard(
                 value = uiState.libraryQuery,
                 onValueChange = onLibraryQueryChange,
-                title = "LOCAL_LIBRARY // FILTER",
-                placeholder = "ENTER TITLE OR ARTIST...",
-                buttonLabel = "IMPORT",
+                title = "ФИЛЬТР БИБЛИОТЕКИ",
+                placeholder = "ПОИСК ПО НАЗВАНИЮ ИЛИ АРТИСТУ...",
+                buttonLabel = "ИМПОРТ",
                 buttonIcon = Icons.Rounded.FolderOpen,
                 onSearch = { onImportTracks() },
             )
         }
         item {
             Text(
-                text = "[ INDEX // ${uiState.filteredTracks.size} TRACKS • QUEUE: ${uiState.selectedPlaylistName.uppercase()} ]",
+                text = "ИНДЕКС: ${uiState.filteredTracks.size} ТРЕКОВ • ПЛЕЙЛИСТ: ${uiState.selectedPlaylistName.uppercase()}",
                 color = Color.White,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 12.sp,
-                letterSpacing = 0.6.sp,
+                letterSpacing = 0.5.sp,
             )
         }
         if (uiState.filteredTracks.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "EMPTY_INDEX",
-                    body = "// NO LOCAL AUDIO MATCHED. CLICK [IMPORT] TO LOAD MP3/FLAC FILES",
+                    title = "БИБЛИОТЕКА ПУСТА",
+                    body = "ТРЕКОВ НЕ НАЙДЕНО. НАЖМИТЕ «ИМПОРТ» ДЛЯ ЗАГРУЗКИ MP3 / FLAC ФАЙЛОВ",
                 )
             }
         } else {
             items(uiState.filteredTracks, key = { it.id }) { track ->
                 TrackRow(
                     track = track,
-                    primaryLabel = "PLAY",
-                    secondaryLabel = "QUEUE",
+                    primaryLabel = "СЛУШАТЬ",
+                    secondaryLabel = "В ОЧЕРЕДЬ",
                     onPrimary = { onPlayTrack(track.id) },
                     onSecondary = { onAddTrackToPlaylist(track.id) },
                     tertiaryIcon = Icons.Rounded.Delete,
-                    tertiaryLabel = "DELETE",
+                    tertiaryLabel = "УДАЛИТЬ",
                     onTertiary = { onDeleteTrack(track.id) },
                 )
             }

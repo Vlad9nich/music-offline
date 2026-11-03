@@ -1,4 +1,4 @@
-﻿package com.codex.signalflow.source
+package com.codex.signalflow.source
 
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +24,7 @@ data class RemoteTrackCandidate(
     val artist: String,
     val detailUrl: String,
     val downloadUrl: String? = null,
+    val coverUrl: String? = null,
 )
 
 data class DownloadBlueprint(
