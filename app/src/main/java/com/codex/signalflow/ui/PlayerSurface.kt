@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -19,7 +20,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
@@ -46,15 +47,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.codex.signalflow.player.PlayerUiState
 import com.codex.signalflow.player.VisualizerUiState
 
@@ -71,39 +71,53 @@ internal fun PlayerDock(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp)
-            .clickable(onClick = onExpand),
-        colors = CardDefaults.cardColors(containerColor = PanelFillAlt),
-        shape = PanelShape,
-        border = BorderStroke(1.dp, NeonCyan.copy(alpha = 0.35f)),
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .glitchClickable(onClick = onExpand),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF0A0C10)),
+        shape = CutPanelShape,
+        border = BorderStroke(1.dp, Color(0xFF2E3544)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                // Status indicator mark
+                Text(
+                    text = if (state.isPlaying) "▶ " else "■ ",
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                )
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = state.currentTrack?.title ?: "Линия ожидания",
-                        color = InkText,
+                        text = state.currentTrack?.title ?: "STANDBY // NO_TRACK",
+                        color = Color.White,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 13.sp,
                     )
                     Text(
                         text = state.currentTrack?.artist ?: state.queueLabel,
-                        color = MutedText,
+                        color = Color(0xFF8A93A6),
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
+                        fontFamily = FontFamily.Monospace,
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     MiniControl(
                         icon = Icons.Rounded.Shuffle,
                         active = state.isShuffleEnabled,
@@ -119,6 +133,7 @@ internal fun PlayerDock(
                     MiniControl(
                         icon = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                         active = true,
+                        primary = true,
                         onClick = onTogglePlayPause,
                     )
                     MiniControl(
@@ -150,63 +165,60 @@ internal fun ExpandedPlayerOverlay(
     onSeekTo: (Long) -> Unit,
 ) {
     BackHandler(onBack = onDismiss)
+    val cursor = rememberBlinkingCursor()
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF03060D), Color(0xFF07111B), Color(0xFF02040A)),
-                ),
-            ),
+            .background(Color(0xFF040507))
+            .scanlineOverlay(),
     ) {
-        GlowOrb(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(420.dp)
-                .align(Alignment.TopCenter),
-            color = NeonPink.copy(alpha = 0.18f),
-            secondaryColor = NeonCyan.copy(alpha = 0.12f),
-        )
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .statusBarsPadding()
                 .navigationBarsPadding()
-                .padding(horizontal = 24.dp, vertical = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(22.dp),
+                .padding(horizontal = 20.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // Top Navigation / Header
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Плеер",
-                        color = NeonCyan,
-                        style = MaterialTheme.typography.labelLarge,
+                        text = "[ DEDSEC_AUDIO ]",
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
+                        fontSize = 14.sp,
+                        letterSpacing = 1.sp,
                     )
                     Text(
-                        text = state.queueLabel,
-                        color = MutedText,
-                        style = MaterialTheme.typography.bodyMedium,
+                        text = if (state.isPlaying) "ONLINE" else "PAUSED",
+                        color = Color(0xFFA0AAB8),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
                     )
                 }
-                MiniControl(icon = Icons.Rounded.KeyboardArrowDown, active = true, onClick = onDismiss)
+                MiniControl(icon = Icons.Rounded.KeyboardArrowDown, active = false, onClick = onDismiss)
             }
 
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(0.2f))
+            Spacer(modifier = Modifier.weight(0.1f))
 
+            // Central Visualizer & Track Info
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 CyberVisualizer(
-                    modifier = Modifier.size(width = 300.dp, height = 220.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(200.dp),
                     bars = visualizerState.bars,
                     isPlaying = state.isPlaying,
                     isUsingFallback = visualizerState.isUsingFallback,
@@ -214,21 +226,28 @@ internal fun ExpandedPlayerOverlay(
                     bassIntensity = visualizerState.bassIntensity,
                     glowPhase = visualizerState.glowPhase,
                 )
+
+                // Track Title with Terminal Blinking Cursor
                 Text(
-                    text = state.currentTrack?.title ?: "Линия ожидания",
-                    color = InkText,
-                    style = MaterialTheme.typography.headlineMedium,
+                    text = (state.currentTrack?.title ?: "NO TRACK LOADED") + cursor,
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
+
+                // Artist & Queue
                 Text(
-                    text = state.currentTrack?.artist ?: state.queueLabel,
-                    color = MutedText,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = "// " + (state.currentTrack?.artist ?: state.queueLabel).uppercase(),
+                    color = Color(0xFF8A93A6),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+
                 PlaybackTimeline(
                     state = state,
                     onSeekTo = onSeekTo,
@@ -236,28 +255,41 @@ internal fun ExpandedPlayerOverlay(
                 )
             }
 
-            androidx.compose.foundation.layout.Spacer(modifier = Modifier.weight(0.3f))
+            Spacer(modifier = Modifier.weight(0.2f))
 
+            // Large Controls Bar (Cut Corners, Black & White Inverted)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 6.dp, bottom = 48.dp),
+                    .padding(bottom = 24.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                MiniControl(
+                LargePlayerControl(
                     icon = Icons.Rounded.Shuffle,
                     active = state.isShuffleEnabled,
                     enabled = state.queueSize > 1,
                     onClick = onToggleShuffle,
+                    size = 50,
                 )
-                LargePlayerControl(icon = Icons.Rounded.FastRewind, enabled = state.hasPrevious, onClick = onPlayPrevious)
+                LargePlayerControl(
+                    icon = Icons.Rounded.FastRewind,
+                    enabled = state.hasPrevious,
+                    onClick = onPlayPrevious,
+                    size = 58,
+                )
                 LargePlayerControl(
                     icon = if (state.isPlaying) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
                     onClick = onTogglePlayPause,
                     primary = true,
+                    size = 72,
                 )
-                LargePlayerControl(icon = Icons.Rounded.FastForward, enabled = state.hasNext, onClick = onPlayNext)
+                LargePlayerControl(
+                    icon = Icons.Rounded.FastForward,
+                    enabled = state.hasNext,
+                    onClick = onPlayNext,
+                    size = 58,
+                )
             }
         }
     }
@@ -287,7 +319,7 @@ internal fun PlaybackTimeline(
 
     Column(
         modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 6.dp),
+        verticalArrangement = Arrangement.spacedBy(if (compact) 2.dp else 4.dp),
     ) {
         Slider(
             value = if (isDragging) sliderValue else activeFraction,
@@ -300,21 +332,20 @@ internal fun PlaybackTimeline(
             interactionSource = interactionSource,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(if (compact) 18.dp else 24.dp),
+                .height(if (compact) 16.dp else 22.dp),
             thumb = {
                 if (!compact || isDragging) {
-                    SliderDefaults.Thumb(
-                        interactionSource = interactionSource,
-                        colors = SliderDefaults.colors(thumbColor = NeonPink),
+                    Box(
+                        modifier = Modifier
+                            .size(width = 6.dp, height = 14.dp)
+                            .background(Color.White),
                     )
                 }
             },
             colors = SliderDefaults.colors(
-                thumbColor = NeonPink,
-                activeTrackColor = NeonCyan,
-                inactiveTrackColor = NeonCyan.copy(alpha = 0.16f),
-                activeTickColor = Color.Transparent,
-                inactiveTickColor = Color.Transparent,
+                thumbColor = Color.White,
+                activeTrackColor = Color.White,
+                inactiveTrackColor = Color(0xFF222834),
             ),
         )
         Row(
@@ -324,18 +355,23 @@ internal fun PlaybackTimeline(
         ) {
             Text(
                 text = formatDuration(position),
-                color = MutedText,
-                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
+                color = Color(0xFFA0AAB8),
+                fontFamily = FontFamily.Monospace,
+                fontSize = if (compact) 10.sp else 12.sp,
             )
             Text(
                 text = formatDuration(duration),
-                color = MutedText,
-                style = if (compact) MaterialTheme.typography.labelSmall else MaterialTheme.typography.bodySmall,
+                color = Color(0xFFA0AAB8),
+                fontFamily = FontFamily.Monospace,
+                fontSize = if (compact) 10.sp else 12.sp,
             )
         }
     }
 }
 
+/**
+ * High-contrast digital equalizer bars with Watch Dogs 2 terminal aesthetic.
+ */
 @Composable
 internal fun CyberVisualizer(
     modifier: Modifier = Modifier,
@@ -346,178 +382,81 @@ internal fun CyberVisualizer(
     bassIntensity: Float,
     glowPhase: Float,
 ) {
-    val accent = if (isUsingFallback) Color(0xFFFF7AA7) else Color(0xFFFF5C84)
-    val highlight = if (isUsingFallback) Color(0xFFFFD6E5) else Color(0xFFFFF3F7)
-    val frameGlow = if (isUsingFallback) NeonPink else NeonCyan
-    val normalizedBars = if (bars.isEmpty()) List(VisualizerUiState.BAR_COUNT) { 0.16f } else bars
+    val normalizedBars = if (bars.isEmpty()) List(VisualizerUiState.BAR_COUNT) { 0.14f } else bars
+
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(36.dp))
-            .background(PanelFillAlt)
-            .border(1.dp, frameGlow.copy(alpha = 0.32f), RoundedCornerShape(36.dp)),
+            .clip(CutCornerShape(8.dp))
+            .background(Color(0xFF090B0F))
+            .border(1.dp, Color(0xFF252B37), CutCornerShape(8.dp))
+            .techCornerMarks(),
         contentAlignment = Alignment.Center,
     ) {
-        GlowOrb(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(220.dp),
-            color = accent.copy(alpha = if (isPlaying) 0.2f + peakIntensity * 0.16f else 0.12f),
-            secondaryColor = NeonCyan.copy(alpha = 0.14f),
-        )
         Canvas(
             modifier = Modifier
-                .fillMaxWidth()
-                .height(220.dp)
-                .padding(horizontal = 18.dp, vertical = 18.dp),
+                .fillMaxSize()
+                .padding(horizontal = 14.dp, vertical = 14.dp),
         ) {
             val width = size.width
             val height = size.height
             val centerY = height / 2f
-            val leftEdge = width * 0.06f
-            val usableWidth = width * 0.88f
-            val step = usableWidth / normalizedBars.size.coerceAtLeast(1)
-            val barWidth = (step * 0.68f).coerceAtLeast(6f)
-            val waveformPath = Path()
-            val mirroredPath = Path()
-            val centerX = width / 2f
-            val fanfareReach = width * (0.18f + peakIntensity * 0.2f)
-            val pulseAlpha = (0.22f + peakIntensity * 0.48f).coerceIn(0f, 0.8f)
+            val count = normalizedBars.size.coerceAtLeast(1)
+            val step = width / count
+            val barWidth = (step * 0.72f).coerceAtLeast(3f)
 
+            // Center zero-baseline
             drawLine(
-                color = NeonCyan.copy(alpha = 0.16f),
-                start = Offset(leftEdge, centerY),
-                end = Offset(leftEdge + usableWidth, centerY),
-                strokeWidth = 2f,
-                cap = StrokeCap.Round,
+                color = Color(0x33FFFFFF),
+                start = Offset(0f, centerY),
+                end = Offset(width, centerY),
+                strokeWidth = 1f,
+                cap = StrokeCap.Square,
             )
-
-            repeat(4) { streakIndex ->
-                val phaseOffset = ((glowPhase + streakIndex * 0.12f) % 1f)
-                val streakShift = (phaseOffset - 0.5f) * 42f
-                val streakAlpha = (pulseAlpha - streakIndex * 0.08f).coerceAtLeast(0.06f)
-                drawLine(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            highlight.copy(alpha = streakAlpha),
-                            accent.copy(alpha = streakAlpha * 0.86f),
-                            Color.Transparent,
-                        ),
-                    ),
-                    start = Offset(centerX - fanfareReach, centerY - 34f - streakIndex * 10f + streakShift),
-                    end = Offset(centerX + fanfareReach, centerY - 4f - streakIndex * 6f - streakShift),
-                    strokeWidth = 3.2f - streakIndex * 0.4f,
-                    cap = StrokeCap.Round,
-                )
-                drawLine(
-                    brush = Brush.horizontalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            accent.copy(alpha = streakAlpha * 0.76f),
-                            highlight.copy(alpha = streakAlpha),
-                            Color.Transparent,
-                        ),
-                    ),
-                    start = Offset(centerX - fanfareReach, centerY + 34f + streakIndex * 10f - streakShift),
-                    end = Offset(centerX + fanfareReach, centerY + 4f + streakIndex * 6f + streakShift),
-                    strokeWidth = 3.2f - streakIndex * 0.4f,
-                    cap = StrokeCap.Round,
-                )
-            }
 
             normalizedBars.forEachIndexed { index, sample ->
-                val amplitude = sample.coerceIn(0.08f, 1f)
-                val x = leftEdge + index * step + (step - barWidth) / 2f
-                val distanceFromCenter = kotlin.math.abs(index - (normalizedBars.lastIndex / 2f)) / (normalizedBars.size / 2f).coerceAtLeast(1f)
-                val envelope = 1f - distanceFromCenter * 0.42f
-                val reactiveBoost = 1f + bassIntensity * 0.34f + peakIntensity * 0.22f
-                val barHeight = (height * 0.36f * amplitude * envelope.coerceAtLeast(0.58f) * reactiveBoost).coerceAtLeast(10f)
-                val glowHeight = barHeight * (if (isPlaying) 1.18f else 1.02f) * (1f + peakIntensity * 0.26f)
+                val amp = sample.coerceIn(0.06f, 1f)
+                val reactiveBoost = if (isPlaying) (1f + bassIntensity * 0.25f + peakIntensity * 0.2f) else 0.5f
+                val barH = (height * 0.44f * amp * reactiveBoost).coerceAtLeast(3f)
+                val x = index * step + (step - barWidth) / 2f
 
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            accent.copy(alpha = 0.22f),
-                            Color(0xFFFF344E).copy(alpha = 0.14f),
-                        ),
-                    ),
-                    topLeft = Offset(x, centerY - glowHeight),
-                    size = Size(barWidth, glowHeight * 2f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth, barWidth),
-                )
-                drawRoundRect(
-                    brush = Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFFF3047),
-                            accent,
-                            highlight,
-                            accent,
-                            Color(0xFFFF3047),
-                        ),
-                    ),
-                    topLeft = Offset(x, centerY - barHeight),
-                    size = Size(barWidth, barHeight * 2f),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth, barWidth),
-                )
+                // Draw digital segments (3px blocks with 1.5px gaps)
+                val segments = (barH / 5f).toInt().coerceAtLeast(1)
+                for (s in 0 until segments) {
+                    val segYTop = centerY - (s + 1) * 5f
+                    val segYBottom = centerY + s * 5f
 
-                val anchorX = x + barWidth / 2f
-                val topY = centerY - barHeight * 0.58f
-                val bottomY = centerY + barHeight * 0.58f
-                if (index == 0) {
-                    waveformPath.moveTo(anchorX, topY)
-                    mirroredPath.moveTo(anchorX, bottomY)
-                } else {
-                    waveformPath.lineTo(anchorX, topY)
-                    mirroredPath.lineTo(anchorX, bottomY)
+                    val color = when {
+                        s > segments - 2 && isPlaying -> Color.White
+                        s > segments - 5 -> Color(0xFFD6DBE5)
+                        else -> Color(0xFF707A8C)
+                    }
+
+                    // Upper bar
+                    drawRect(
+                        color = color,
+                        topLeft = Offset(x, segYTop),
+                        size = Size(barWidth, 3.5f),
+                    )
+                    // Lower mirrored bar
+                    drawRect(
+                        color = color.copy(alpha = 0.65f),
+                        topLeft = Offset(x, segYBottom),
+                        size = Size(barWidth, 3.5f),
+                    )
                 }
             }
-
-            drawPath(
-                path = waveformPath,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0x44FF5C84),
-                        highlight,
-                        Color(0x66FF5C84),
-                    ),
-                ),
-                style = Stroke(width = 3f, cap = StrokeCap.Round),
-            )
-            drawPath(
-                path = mirroredPath,
-                brush = Brush.horizontalGradient(
-                    colors = listOf(
-                        Color(0x33FF5C84),
-                        accent.copy(alpha = 0.84f),
-                        Color(0x22FF5C84),
-                    ),
-                ),
-                style = Stroke(width = 2f, cap = StrokeCap.Round),
-            )
-
-            val haloRadius = if (isPlaying) height * 0.18f else height * 0.12f
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(
-                        highlight.copy(alpha = 0.24f + peakIntensity * 0.28f),
-                        accent.copy(alpha = 0.14f + bassIntensity * 0.18f),
-                        Color.Transparent,
-                    ),
-                    center = Offset(width / 2f, centerY),
-                    radius = haloRadius * (1f + peakIntensity * 0.34f),
-                ),
-                radius = haloRadius * (1f + peakIntensity * 0.34f),
-                center = Offset(width / 2f, centerY),
-            )
         }
+
+        // Subtitle indicator
         Text(
-            text = if (isUsingFallback) "Локальный импульс" else "Спектр потока",
-            color = if (isUsingFallback) MutedText else highlight,
-            style = MaterialTheme.typography.labelSmall,
+            text = if (isPlaying) "SPECTRUM // ACTIVE" else "SPECTRUM // IDLE",
+            color = Color(0xFF5A6273),
+            fontFamily = FontFamily.Monospace,
+            fontSize = 9.sp,
+            letterSpacing = 1.sp,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 14.dp),
+                .padding(bottom = 6.dp),
         )
     }
 }
@@ -527,26 +466,43 @@ internal fun LargePlayerControl(
     icon: ImageVector,
     onClick: () -> Unit,
     primary: Boolean = false,
+    active: Boolean = false,
     enabled: Boolean = true,
+    size: Int = 64,
 ) {
+    val shape = CutCornerShape((size / 5).dp)
+    val bgColor = when {
+        primary && enabled -> Color.White
+        active -> Color(0xFF222836)
+        else -> Color(0xFF0F1218)
+    }
+    val iconColor = when {
+        primary && enabled -> Color.Black
+        active -> Color.White
+        !enabled -> Color(0xFF3E4656)
+        else -> Color(0xFFD0D6E2)
+    }
+    val borderColor = when {
+        primary -> Color.White
+        active -> Color.White
+        !enabled -> Color(0xFF1C212B)
+        else -> Color(0xFF2E3646)
+    }
+
     Box(
         modifier = Modifier
-            .size(if (primary) 92.dp else 76.dp)
-            .clip(RoundedCornerShape(26.dp))
-            .background(if (primary && enabled) NeonPink.copy(alpha = 0.18f) else PanelFillAlt)
-            .border(
-                1.dp,
-                if (!enabled) Color(0xFF1B2433) else if (primary) NeonPink.copy(alpha = 0.72f) else NeonCyan.copy(alpha = 0.32f),
-                RoundedCornerShape(26.dp),
-            )
-            .clickable(enabled = enabled, onClick = onClick),
+            .size(size.dp)
+            .clip(shape)
+            .background(bgColor)
+            .border(1.dp, borderColor, shape)
+            .glitchClickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (!enabled) MutedText.copy(alpha = 0.46f) else if (primary) InkText else NeonCyan,
-            modifier = Modifier.size(if (primary) 38.dp else 30.dp),
+            tint = iconColor,
+            modifier = Modifier.size((size * 0.44f).dp),
         )
     }
 }

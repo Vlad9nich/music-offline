@@ -1,4 +1,4 @@
-﻿package com.codex.signalflow.ui
+package com.codex.signalflow.ui
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -37,6 +37,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -99,17 +100,23 @@ import com.codex.signalflow.player.VisualizerUiState
 import com.codex.signalflow.source.RemoteTrackCandidate
 import kotlin.math.roundToInt
 
-internal val NeonCyan = Color(0xFF42F5FF)
-internal val NeonPink = Color(0xFFFF4D8D)
-internal val AcidLime = Color(0xFF74FF8B)
-internal val PanelFill = Color(0xFF0A111A)
-internal val PanelFillAlt = Color(0xFF0F1825)
-internal val InkText = Color(0xFFF4F7FF)
-internal val MutedText = Color(0xFF9BA9C4)
-// Softer product surfaces (rounded) — cut-corners were too heavy for dense lists.
-internal val PanelShape = RoundedCornerShape(16.dp)
-internal val InputShape = RoundedCornerShape(12.dp)
-internal val TrackRowShape = RoundedCornerShape(14.dp)
+internal val CyberWhite = Color(0xFFFFFFFF)
+internal val CyberSilver = Color(0xFFD6DBE5)
+internal val CyberGrey = Color(0xFF8A93A6)
+internal val CyberDark = Color(0xFF141822)
+internal val PanelFill = Color(0xFF090B0F)
+internal val PanelFillAlt = Color(0xFF10131A)
+internal val InkText = Color(0xFFF2F4F8)
+internal val MutedText = Color(0xFF8690A2)
+
+// Compatibility aliases for pure Black & White aesthetic
+internal val NeonCyan = CyberWhite
+internal val NeonPink = CyberSilver
+internal val AcidLime = CyberWhite
+
+internal val PanelShape = CutCornerShape(8.dp)
+internal val InputShape = CutCornerShape(6.dp)
+internal val TrackRowShape = CutCornerShape(6.dp)
 
 private enum class AppTab(
     val label: String,
@@ -171,28 +178,9 @@ fun SignalFlowApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(
-                Brush.verticalGradient(
-                    colors = listOf(Color(0xFF02040A), Color(0xFF070B12), Color(0xFF05070B)),
-                ),
-            ),
+            .background(Color(0xFF040507))
+            .scanlineOverlay(),
     ) {
-        GlowOrb(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(360.dp)
-                .align(Alignment.TopCenter),
-            color = NeonPink.copy(alpha = 0.22f),
-            secondaryColor = NeonCyan.copy(alpha = 0.12f),
-        )
-        GlowOrb(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(420.dp)
-                .align(Alignment.BottomCenter),
-            color = NeonCyan.copy(alpha = 0.14f),
-            secondaryColor = Color.Transparent,
-        )
 
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing,
@@ -304,46 +292,66 @@ fun SignalFlowApp(
 
 @Composable
 private fun AppHeader() {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
-            text = "YaNeoDex",
-            color = InkText,
-            style = MaterialTheme.typography.headlineMedium.copy(
-                fontWeight = FontWeight.Black,
-                letterSpacing = 0.8.sp,
-            ),
+            text = "[ DEDSEC // YaNeoDex ]",
+            color = Color.White,
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 15.sp,
+            letterSpacing = 1.sp,
         )
-        Text(
-            text = "Офлайн-плеер, плейлисты и поиск по внешнему источнику",
-            color = MutedText,
-            style = MaterialTheme.typography.bodyMedium,
-        )
+        Box(
+            modifier = Modifier
+                .clip(CutCornerShape(4.dp))
+                .border(1.dp, Color(0xFF384357), CutCornerShape(4.dp))
+                .background(Color(0xFF0E121A))
+                .padding(horizontal = 8.dp, vertical = 3.dp),
+        ) {
+            Text(
+                text = "ONLINE 0x01",
+                color = Color(0xFFA0ACB8),
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Medium,
+            )
+        }
     }
 }
 
 @Composable
 private fun BottomNavigation(currentTab: AppTab, onSelect: (AppTab) -> Unit) {
     NavigationBar(
-        containerColor = Color(0xFF081018),
-        contentColor = InkText,
+        containerColor = Color(0xFF06070B),
+        contentColor = Color.White,
+        modifier = Modifier.border(1.dp, Color(0xFF1B202B)),
     ) {
         AppTab.entries.forEach { tab ->
+            val isSelected = tab == currentTab
             NavigationBarItem(
-                selected = tab == currentTab,
+                selected = isSelected,
                 onClick = { onSelect(tab) },
                 icon = { Icon(tab.icon, contentDescription = tab.label) },
-                label = { Text(tab.label) },
+                label = {
+                    Text(
+                        text = tab.label.uppercase(),
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        fontSize = 10.sp,
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                    )
+                },
                 colors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = NeonCyan,
-                    selectedTextColor = NeonCyan,
-                    indicatorColor = NeonPink.copy(alpha = 0.18f),
-                    unselectedIconColor = MutedText,
-                    unselectedTextColor = MutedText,
+                    selectedIconColor = Color.Black,
+                    selectedTextColor = Color.White,
+                    indicatorColor = Color.White,
+                    unselectedIconColor = Color(0xFF6B7588),
+                    unselectedTextColor = Color(0xFF6B7588),
                 ),
             )
         }
@@ -495,9 +503,9 @@ internal fun CyberTextField(
         modifier = Modifier
             .fillMaxWidth()
             .clip(InputShape)
-            .background(Color(0xFF07111B))
-            .border(1.dp, NeonCyan.copy(alpha = 0.9f), InputShape)
-            .padding(horizontal = 14.dp, vertical = 14.dp),
+            .background(Color(0xFF080A0F))
+            .border(1.dp, Color(0xFF2A3240), InputShape)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
     ) {
         BasicTextField(
             value = value,
@@ -505,11 +513,12 @@ internal fun CyberTextField(
             modifier = Modifier.fillMaxWidth(),
             singleLine = true,
             textStyle = TextStyle(
-                color = InkText,
-                fontSize = 18.sp,
+                color = Color.White,
+                fontSize = 15.sp,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                 fontWeight = FontWeight.Medium,
             ),
-            cursorBrush = SolidColor(NeonPink),
+            cursorBrush = SolidColor(Color.White),
             keyboardOptions = KeyboardOptions(imeAction = imeAction),
             keyboardActions = KeyboardActions(
                 onSearch = { onImeAction() },
@@ -519,8 +528,9 @@ internal fun CyberTextField(
                 if (value.isBlank()) {
                     Text(
                         text = placeholder,
-                        color = MutedText,
-                        style = MaterialTheme.typography.bodyLarge,
+                        color = Color(0xFF5E6779),
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                        fontSize = 13.sp,
                     )
                 }
                 innerTextField()
@@ -540,49 +550,48 @@ internal fun TrackRow(
     tertiaryLabel: String? = null,
     onTertiary: (() -> Unit)? = null,
 ) {
-    // Dense product row (≈56–64dp) instead of heavy PanelCard titled "ТРЕК".
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clip(TrackRowShape)
-            .background(PanelFill)
-            .border(1.dp, NeonCyan.copy(alpha = 0.18f), TrackRowShape)
-            .clickable(onClick = onPrimary)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .background(Color(0xFF080B0F))
+            .border(1.dp, Color(0xFF1E2430), TrackRowShape)
+            .glitchClickable(onClick = onPrimary)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
             modifier = Modifier
-                .size(44.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .background(
-                    Brush.linearGradient(
-                        listOf(NeonPink.copy(alpha = 0.35f), NeonCyan.copy(alpha = 0.2f)),
-                    ),
-                ),
+                .size(36.dp)
+                .clip(CutCornerShape(4.dp))
+                .background(Color(0xFF121620))
+                .border(1.dp, Color(0xFF2B3342), CutCornerShape(4.dp)),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = track.title.take(1).uppercase(),
-                color = InkText,
+                color = Color.White,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleMedium,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 13.sp,
             )
         }
         Column(modifier = Modifier.weight(1f)) {
             Text(
                 text = track.title,
-                color = InkText,
+                color = Color.White,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                fontWeight = FontWeight.SemiBold,
-                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 13.sp,
             )
             Text(
-                text = "${track.artist} · ${formatDuration(track.durationMs)}",
-                color = MutedText,
-                style = MaterialTheme.typography.bodySmall,
+                text = "${track.artist} // ${formatDuration(track.durationMs)}",
+                color = Color(0xFF7A8498),
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 11.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
@@ -592,7 +601,7 @@ internal fun TrackRow(
             contentDescription = primaryLabel,
             enabled = true,
             active = false,
-            accent = NeonCyan,
+            accent = Color.White,
             onClick = onPrimary,
         )
         ActionIconButton(
@@ -600,7 +609,7 @@ internal fun TrackRow(
             contentDescription = secondaryLabel,
             enabled = true,
             active = false,
-            accent = NeonPink,
+            accent = Color(0xFFD6DBE5),
             onClick = onSecondary,
         )
         if (tertiaryIcon != null && tertiaryLabel != null && onTertiary != null) {
@@ -609,7 +618,7 @@ internal fun TrackRow(
                 contentDescription = tertiaryLabel,
                 enabled = true,
                 active = false,
-                accent = NeonPink,
+                accent = Color(0xFFA0AAB8),
                 onClick = onTertiary,
             )
         }
@@ -862,24 +871,31 @@ internal fun PortalCard(
 ) {
     Card(
         modifier = Modifier
-            .width(228.dp)
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = PanelFill),
+            .width(180.dp)
+            .glitchClickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF080B0F)),
         shape = PanelShape,
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.32f)),
+        border = BorderStroke(1.dp, Color(0xFF242C3A)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
+                .padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(title, color = accent, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.labelLarge)
+            Text(
+                text = "[ ${title.uppercase()} ]",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 12.sp,
+            )
             Text(
                 text = caption,
-                color = InkText,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 3,
+                color = Color(0xFF828C9F),
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 11.sp,
+                maxLines = 2,
                 overflow = TextOverflow.Ellipsis,
             )
         }
@@ -898,54 +914,53 @@ internal fun CompactTrackCard(
             .fillMaxWidth()
             .then(
                 if (onClick != null) {
-                    Modifier.clickable(onClick = onClick)
+                    Modifier.glitchClickable(onClick = onClick)
                 } else {
                     Modifier
                 },
             ),
-        colors = CardDefaults.cardColors(containerColor = PanelFill),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF080B0F)),
         shape = TrackRowShape,
-        border = BorderStroke(1.dp, accent.copy(alpha = 0.22f)),
+        border = BorderStroke(1.dp, Color(0xFF1E2430)),
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 10.dp),
+                .padding(horizontal = 10.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Box(
                 modifier = Modifier
-                    .size(40.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(accent.copy(alpha = 0.22f)),
+                    .size(34.dp)
+                    .clip(CutCornerShape(4.dp))
+                    .background(Color(0xFF121620))
+                    .border(1.dp, Color(0xFF283040), CutCornerShape(4.dp)),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    track.title.take(1).uppercase(),
-                    color = InkText,
+                    text = track.title.take(1).uppercase(),
+                    color = Color.White,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
                 )
             }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = track.title,
-                    color = InkText,
+                    color = Color.White,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    fontWeight = FontWeight.SemiBold,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 12.sp,
                 )
                 Text(
-                    text = track.artist,
-                    color = MutedText,
-                    style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    text = meta,
-                    color = accent,
-                    style = MaterialTheme.typography.labelSmall,
+                    text = "${track.artist} // $meta",
+                    color = Color(0xFF7A8498),
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -962,7 +977,7 @@ internal fun RemoteTrackRow(
     onPreview: () -> Unit,
     onDownload: () -> Unit,
 ) {
-    PanelCard(title = "Найденный трек", accent = NeonCyan) {
+    PanelCard(title = "FIND // ${result.sourceId}", accent = Color.White) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -971,40 +986,37 @@ internal fun RemoteTrackRow(
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = result.title,
-                    color = InkText,
-                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 13.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(result.artist, color = MutedText, style = MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(6.dp))
-                Text("Источник: ${result.sourceId}", color = NeonCyan, style = MaterialTheme.typography.bodySmall)
-                if (!result.downloadUrl.isNullOrBlank()) {
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        text = if (isDownloading) "Скачивание..." else "Готов к загрузке",
-                        color = if (isDownloading) NeonPink else AcidLime,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                }
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = result.artist,
+                    color = Color(0xFF7A8498),
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 11.sp,
+                )
             }
-            Spacer(Modifier.width(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.width(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                 ActionIconButton(
                     icon = Icons.Rounded.PlayCircleOutline,
                     contentDescription = "Предпрослушивание",
                     enabled = !isDownloading,
                     active = isPreviewing,
-                    accent = NeonCyan,
+                    accent = Color.White,
                     onClick = onPreview,
                 )
                 ActionIconButton(
                     icon = Icons.Rounded.FileDownload,
                     contentDescription = "Скачать",
                     enabled = result.downloadUrl != null && !isDownloading,
-                    active = result.downloadUrl != null,
-                    accent = NeonPink,
+                    active = false,
+                    accent = Color.White,
                     onClick = onDownload,
                 )
             }
@@ -1014,8 +1026,13 @@ internal fun RemoteTrackRow(
 
 @Composable
 internal fun EmptyBlock(title: String, body: String) {
-    PanelCard(title = title, accent = NeonCyan) {
-        Text(body, color = MutedText)
+    PanelCard(title = title, accent = Color.White) {
+        Text(
+            text = body,
+            color = Color(0xFF7A8498),
+            fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+            fontSize = 12.sp,
+        )
     }
 }
 
@@ -1027,24 +1044,45 @@ internal fun HeroPanel(
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF090B0F)),
         shape = PanelShape,
-        border = BorderStroke(1.dp, NeonPink.copy(alpha = 0.45f)),
+        border = BorderStroke(1.dp, Color(0xFF262E3D)),
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(
-                    Brush.linearGradient(
-                        colors = listOf(NeonPink.copy(alpha = 0.12f), NeonCyan.copy(alpha = 0.08f), PanelFillAlt),
-                    ),
-                )
-                .padding(18.dp),
+                .background(Color(0xFF090B0F))
+                .techCornerMarks()
+                .padding(14.dp),
         ) {
-            Text(title, color = InkText, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(6.dp))
-            Text(subtitle, color = MutedText, style = MaterialTheme.typography.bodyMedium)
-            Spacer(Modifier.height(14.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title.uppercase(),
+                    color = Color.White,
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.8.sp,
+                )
+                Text(
+                    text = "// READY",
+                    color = Color(0xFF7A8598),
+                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                    fontSize = 10.sp,
+                )
+            }
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = subtitle,
+                color = Color(0xFF7E889B),
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontSize = 11.sp,
+            )
+            Spacer(Modifier.height(10.dp))
             content()
         }
     }
@@ -1116,22 +1154,25 @@ internal fun PrimaryActionButton(
 ) {
     Box(
         modifier = modifier
-            .clip(InputShape)
-            .background(
-                Brush.horizontalGradient(
-                    colors = listOf(NeonPink, Color(0xFFFF8E6F)),
-                ),
-            )
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                onClick = onClick,
-            )
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .clip(CutButtonShape)
+            .background(Color.White)
+            .glitchClickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = label, tint = Color.Black, modifier = Modifier.size(18.dp))
-            Text(label, color = Color.Black, fontWeight = FontWeight.Black, maxLines = 1, softWrap = false)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(icon, contentDescription = label, tint = Color.Black, modifier = Modifier.size(16.dp))
+            Text(
+                text = "[ ${label.uppercase()} ]",
+                color = Color.Black,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 12.sp,
+                maxLines = 1,
+                softWrap = false,
+            )
         }
     }
 }
@@ -1145,27 +1186,31 @@ internal fun SecondaryActionButton(
 ) {
     Box(
         modifier = Modifier
-            .clip(InputShape)
+            .clip(CutButtonShape)
             .background(PanelFillAlt)
-            .border(1.dp, NeonCyan.copy(alpha = 0.3f), InputShape)
-            .clickable(onClick = onClick)
+            .border(1.dp, Color(0xFF2E3648), CutButtonShape)
+            .glitchClickable(onClick = onClick)
             .padding(
-                horizontal = if (compact) 10.dp else 12.dp,
-                vertical = if (compact) 8.dp else 10.dp,
+                horizontal = if (compact) 8.dp else 12.dp,
+                vertical = if (compact) 6.dp else 8.dp,
             ),
     ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(if (compact) 4.dp else 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Icon(
                 icon,
                 contentDescription = label,
-                tint = InkText,
+                tint = Color.White,
                 modifier = Modifier.size(if (compact) 14.dp else 16.dp),
             )
             Text(
-                label,
-                color = InkText,
+                text = "[ ${label.uppercase()} ]",
+                color = Color.White,
+                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                 fontWeight = FontWeight.Medium,
-                style = if (compact) MaterialTheme.typography.labelLarge else MaterialTheme.typography.bodyMedium,
+                fontSize = if (compact) 10.sp else 12.sp,
                 maxLines = 1,
                 softWrap = false,
             )
@@ -1179,37 +1224,40 @@ internal fun MiniControl(
     active: Boolean,
     onClick: () -> Unit,
     enabled: Boolean = true,
+    primary: Boolean = false,
 ) {
+    val shape = CutCornerShape(4.dp)
+    val bg = when {
+        primary && active -> Color.White
+        active -> Color(0xFF1D222E)
+        else -> Color(0xFF090B0F)
+    }
+    val tint = when {
+        primary && active -> Color.Black
+        active -> Color.White
+        !enabled -> Color(0xFF384050)
+        else -> Color(0xFF909BB0)
+    }
+    val border = when {
+        primary -> Color.White
+        active -> Color(0xFF3E485C)
+        else -> Color(0xFF1E232E)
+    }
+
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(
-                when {
-                    !enabled -> Color(0xFF05070B)
-                    active -> PanelFill
-                    else -> Color(0xFF05070B)
-                },
-            )
-            .border(
-                1.dp,
-                when {
-                    !enabled -> Color(0xFF1B2433)
-                    active -> NeonPink.copy(alpha = 0.44f)
-                    else -> Color(0xFF1B2433)
-                },
-                RoundedCornerShape(14.dp),
-            )
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(10.dp),
+            .size(34.dp)
+            .clip(shape)
+            .background(bg)
+            .border(1.dp, border, shape)
+            .glitchClickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             icon,
             contentDescription = null,
-            tint = when {
-                !enabled -> MutedText.copy(alpha = 0.46f)
-                active -> InkText
-                else -> MutedText
-            },
+            tint = tint,
+            modifier = Modifier.size(18.dp),
         )
     }
 }
@@ -1223,19 +1271,21 @@ internal fun ActionIconButton(
     accent: Color,
     onClick: () -> Unit,
 ) {
+    val shape = CutCornerShape(4.dp)
     Box(
         modifier = Modifier
-            .clip(InputShape)
-            .background(if (enabled) accent.copy(alpha = 0.16f) else PanelFillAlt)
-            .border(1.dp, if (active) accent.copy(alpha = 0.7f) else Color(0xFF1B2433), InputShape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 12.dp),
+            .size(36.dp)
+            .clip(shape)
+            .background(if (active) Color.White else Color(0xFF10141C))
+            .border(1.dp, if (active) Color.White else Color(0xFF242C3B), shape)
+            .glitchClickable(enabled = enabled, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = if (enabled) accent else MutedText,
-            modifier = Modifier.size(20.dp),
+            tint = if (active) Color.Black else if (enabled) Color.White else Color(0xFF4C5668),
+            modifier = Modifier.size(18.dp),
         )
     }
 }
@@ -1246,14 +1296,8 @@ internal fun GlowOrb(
     color: Color,
     secondaryColor: Color,
 ) {
-    Box(
-        modifier = modifier.background(
-            Brush.radialGradient(
-                colors = listOf(color, secondaryColor, Color.Transparent),
-                radius = 820f,
-            ),
-        ),
-    )
+    // Replaced with minimal empty spacer for Watch Dogs 2 high-contrast clean look
+    Box(modifier = modifier)
 }
 
 internal fun RemoteTrackCandidate.stableKey(): String {

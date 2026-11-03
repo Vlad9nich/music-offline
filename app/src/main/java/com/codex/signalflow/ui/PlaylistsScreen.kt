@@ -13,11 +13,10 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Shuffle
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -27,9 +26,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.codex.signalflow.MainUiState
 
 @Composable
@@ -85,34 +87,34 @@ internal fun PlaylistsScreen(
 
     ScreenColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 160.dp, top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 140.dp, top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         if (!isDetailOpen) {
             item {
-                PanelCard(title = "Новый плейлист", accent = NeonCyan) {
+                PanelCard(title = "QUEUE_MANAGER // CREATE", accent = Color.White) {
                     CyberTextField(
                         value = draftName,
                         onValueChange = { draftName = it },
-                        placeholder = "Название плейлиста",
+                        placeholder = "ENTER PLAYLIST NAME...",
                         imeAction = ImeAction.Done,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         PrimaryActionButton(
                             modifier = Modifier.weight(1f),
-                            label = "Создать",
+                            label = "CREATE",
                             icon = Icons.Rounded.Add,
                             onClick = {
                                 onCreatePlaylist(draftName)
                                 draftName = ""
                             },
                         )
-                        SecondaryActionButton(label = "Пуск", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
-                        SecondaryActionButton(label = "Шафл", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
+                        SecondaryActionButton(label = "PLAY", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
+                        SecondaryActionButton(label = "SHUFFLE", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
                     }
                 }
             }
@@ -120,8 +122,8 @@ internal fun PlaylistsScreen(
         item {
             if (uiState.playlists.isEmpty()) {
                 EmptyBlock(
-                    title = "Плейлистов пока нет",
-                    body = "Создайте плейлист, затем импортируйте треки или добавьте их с вкладки локальной медиатеки.",
+                    title = "EMPTY_REGISTRY",
+                    body = "// NO PLAYLISTS RECORDED. ENTER A NAME ABOVE",
                 )
             } else {
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -142,19 +144,20 @@ internal fun PlaylistsScreen(
         }
         if (!isDetailOpen) {
             item {
-                PanelCard(title = "Активный плейлист", accent = NeonPink) {
-                    Text(uiState.selectedPlaylistName, color = InkText, fontWeight = FontWeight.Bold)
+                PanelCard(title = "ACTIVE // ${uiState.selectedPlaylistName.uppercase()}", accent = Color.White) {
+                    Text(
+                        text = "TOTAL TRACKS: ${uiState.selectedPlaylistTracks.size}",
+                        color = Color.White,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "Треков: ${uiState.selectedPlaylistTracks.size}",
-                        color = MutedText,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "Нажмите на плейлист выше, чтобы открыть отдельный экран с поиском и фильтром по авторам.",
-                        color = MutedText,
-                        style = MaterialTheme.typography.bodySmall,
+                        text = "// TAP PLAYLIST CHIP ABOVE TO OPEN DETAILED FILTER & OCR SCANNER",
+                        color = Color(0xFF7A8498),
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 11.sp,
                     )
                 }
             }
@@ -173,8 +176,8 @@ internal fun PlaylistsScreen(
             if (visibleImportItems.isEmpty()) {
                 item {
                     EmptyBlock(
-                        title = "Пока пусто",
-                        body = importSession.errorMessage ?: "После распознавания здесь появятся треки для переноса.",
+                        title = "SCAN_EMPTY",
+                        body = importSession.errorMessage ?: "// WAITING FOR OCR PAYLOAD",
                     )
                 }
             } else {
@@ -187,87 +190,54 @@ internal fun PlaylistsScreen(
             }
         } else {
             item {
-                PanelCard(title = "Плейлист", accent = NeonPink) {
+                PanelCard(title = "DECK // ${uiState.selectedPlaylistName.uppercase()}", accent = Color.White) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         SecondaryActionButton(
-                            label = "К списку",
-                            icon = Icons.Rounded.ArrowBack,
+                            label = "BACK",
+                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
                             onClick = { isDetailOpen = false },
                             compact = true,
                         )
                         Column(modifier = Modifier.weight(1f)) {
-                            Text(uiState.selectedPlaylistName, color = InkText, fontWeight = FontWeight.Bold)
-                            Text("Треков: ${uiState.selectedPlaylistTracks.size}", color = MutedText, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                text = uiState.selectedPlaylistName.uppercase(),
+                                color = Color.White,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                            )
+                            Text(
+                                text = "INDEX COUNT: ${uiState.selectedPlaylistTracks.size}",
+                                color = Color(0xFF7A8498),
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 11.sp,
+                            )
                         }
                     }
-                    Spacer(Modifier.height(12.dp))
-                    Text(
-                        text = "Адрес OCR сервера",
-                        color = MutedText,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    CyberTextField(
-                        value = uiState.ocrServerUrl,
-                        onValueChange = onOcrServerUrlChange,
-                        placeholder = "https://your-vps.example.com",
-                        imeAction = ImeAction.Done,
-                    )
                     Spacer(Modifier.height(10.dp))
-                    Text(
-                        text = "Bearer token OCR сервера",
-                        color = MutedText,
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    CyberTextField(
-                        value = uiState.ocrAuthToken,
-                        onValueChange = onOcrAuthTokenChange,
-                        placeholder = "OCR_API_TOKEN",
-                        imeAction = ImeAction.Done,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        SecondaryActionButton(
-                            label = "Импорт со скриншотов",
-                            icon = Icons.Rounded.Add,
-                            onClick = onImportPlaylistScreenshots,
-                            compact = true,
-                        )
-                        Text(
-                            text = "Скриншоты распознаются на VPS и затем матчатся через текущий источник.",
-                            color = MutedText,
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.weight(1f),
-                        )
-                    }
-                    Spacer(Modifier.height(12.dp))
                     CyberTextField(
                         value = playlistQuery,
                         onValueChange = { playlistQuery = it },
-                        placeholder = "Поиск внутри плейлиста",
+                        placeholder = "FILTER_TRACKS_IN_PLAYLIST...",
                         imeAction = ImeAction.Search,
                     )
                     if (authorFilters.isNotEmpty()) {
-                        Spacer(Modifier.height(12.dp))
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Spacer(Modifier.height(8.dp))
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             item {
                                 FilterChip(
-                                    label = "Все",
+                                    label = "ALL",
                                     selected = selectedArtist == null,
                                     onClick = { selectedArtist = null },
-                                )
+                                    )
                             }
                             items(authorFilters, key = { it }) { artist ->
                                 FilterChip(
-                                    label = artist,
+                                    label = artist.uppercase(),
                                     selected = selectedArtist == artist,
                                     onClick = { selectedArtist = if (selectedArtist == artist) null else artist },
                                 )
@@ -279,8 +249,8 @@ internal fun PlaylistsScreen(
             if (filteredPlaylistTracks.isEmpty()) {
                 item {
                     EmptyBlock(
-                        title = "Ничего не найдено",
-                        body = "Измените поиск или снимите фильтр по автору.",
+                        title = "NO_MATCH",
+                        body = "// ZERO MATCHES FOUND FOR CURRENT QUERY",
                     )
                 }
             } else {
@@ -290,8 +260,8 @@ internal fun PlaylistsScreen(
                 ) { _, track ->
                     TrackRow(
                         track = track,
-                        primaryLabel = "Пуск",
-                        secondaryLabel = "Убрать",
+                        primaryLabel = "PLAY",
+                        secondaryLabel = "REMOVE",
                         onPrimary = { onPlayTrack(track.id) },
                         onSecondary = { onRemoveTrackFromPlaylist(track.id) },
                     )

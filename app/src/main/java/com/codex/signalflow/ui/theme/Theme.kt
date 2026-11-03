@@ -1,6 +1,6 @@
 package com.codex.signalflow.ui.theme
 
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CutCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Shapes
 import androidx.compose.material3.Typography
@@ -13,67 +13,90 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-/** Single source of truth for YaNeoDex Android dark theme. */
+/**
+ * Pure Black & White Glitch / Watch Dogs 2 (DedSec) terminal color scheme.
+ * High contrast, minimal, no distracting neon pink or acid greens.
+ */
 private val SignalFlowColors = darkColorScheme(
-    primary = Color(0xFF38F2FA),
-    onPrimary = Color(0xFF031217),
-    secondary = Color(0xFFE24872),
-    onSecondary = Color(0xFF17030A),
-    tertiary = Color(0xFF74FF8B),
-    background = Color(0xFF05070B),
-    surface = Color(0xFF0D1119),
-    surfaceVariant = Color(0xFF121A26),
-    onSurface = Color(0xFFE9EEF9),
-    onBackground = Color(0xFFE9EEF9),
-    outline = Color(0xFF2A3548),
+    primary = Color(0xFFFFFFFF),
+    onPrimary = Color(0xFF000000),
+    secondary = Color(0xFFD6DBE5),
+    onSecondary = Color(0xFF000000),
+    tertiary = Color(0xFF8A94A6),
+    background = Color(0xFF040507),
+    surface = Color(0xFF0A0C10),
+    surfaceVariant = Color(0xFF12151D),
+    onSurface = Color(0xFFF2F4F8),
+    onBackground = Color(0xFFF2F4F8),
+    outline = Color(0xFF262D3C),
+    outlineVariant = Color(0xFF191D26),
 )
 
 private val SignalFlowTypography = Typography(
     headlineMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Black,
-        fontSize = 26.sp,
-        letterSpacing = 0.4.sp,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        fontSize = 22.sp,
+        letterSpacing = 1.2.sp,
+    ),
+    titleLarge = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        fontSize = 18.sp,
+        letterSpacing = 0.8.sp,
     ),
     titleMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.SemiBold,
-        fontSize = 16.sp,
-        lineHeight = 22.sp,
-    ),
-    bodyLarge = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
         fontSize = 15.sp,
         lineHeight = 20.sp,
+        letterSpacing = 0.4.sp,
+    ),
+    bodyLarge = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Normal,
+        fontSize = 14.sp,
+        lineHeight = 19.sp,
     ),
     bodyMedium = TextStyle(
-        fontFamily = FontFamily.SansSerif,
-        fontWeight = FontWeight.Normal,
-        fontSize = 13.sp,
-        lineHeight = 18.sp,
-    ),
-    bodySmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+        fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Normal,
         fontSize = 12.sp,
         lineHeight = 16.sp,
     ),
-    labelSmall = TextStyle(
-        fontFamily = FontFamily.SansSerif,
+    bodySmall = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Normal,
+        fontSize = 11.sp,
+        lineHeight = 14.sp,
+    ),
+    labelLarge = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        fontSize = 13.sp,
+        letterSpacing = 0.8.sp,
+    ),
+    labelMedium = TextStyle(
+        fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Medium,
         fontSize = 11.sp,
+        letterSpacing = 0.6.sp,
+    ),
+    labelSmall = TextStyle(
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Medium,
+        fontSize = 10.sp,
         letterSpacing = 0.4.sp,
     ),
 )
 
-/** Soft product shapes — less "топорно" than full cut-corners everywhere. */
+/** Watch Dogs 2 style: Chamfered / Cut-corners (45° angles) instead of rounded bubbles. */
 private val SignalFlowShapes = Shapes(
-    extraSmall = RoundedCornerShape(8.dp),
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(16.dp),
-    large = RoundedCornerShape(20.dp),
-    extraLarge = RoundedCornerShape(28.dp),
+    extraSmall = CutCornerShape(3.dp),
+    small = CutCornerShape(6.dp),
+    medium = CutCornerShape(10.dp),
+    large = CutCornerShape(14.dp),
+    extraLarge = CutCornerShape(18.dp),
 )
 
 @Composable

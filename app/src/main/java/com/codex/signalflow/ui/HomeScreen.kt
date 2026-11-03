@@ -17,8 +17,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.codex.signalflow.MainUiState
 import com.codex.signalflow.player.PlayerUiState
 
@@ -35,138 +38,137 @@ internal fun HomeScreen(
     onPlayTrack: (String) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
-    val localPreview = uiState.tracks.take(4)
-    val playlistPreview = uiState.selectedPlaylistTracks.take(4)
+    val localPreview = uiState.tracks.take(5)
+    val playlistPreview = uiState.selectedPlaylistTracks.take(5)
 
     ScreenColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 160.dp, top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 140.dp, top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        // System Status Hero Panel
         item {
             HeroPanel(
-                title = "Система готова",
-                subtitle = "Плеер и очередь держат выбранный плейлист под постоянным контролем.",
+                title = "SYS_STATUS // ONLINE",
+                subtitle = "STORAGE: ${uiState.tracks.size} TRACKS • QUEUE: ${uiState.selectedPlaylistTracks.size}",
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    PrimaryActionButton(label = "Импорт", icon = Icons.Rounded.FolderOpen, onClick = onImportTracks)
-                    SecondaryActionButton(label = "Пуск", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
-                    SecondaryActionButton(label = "Шафл", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
+                    PrimaryActionButton(label = "IMPORT", icon = Icons.Rounded.FolderOpen, onClick = onImportTracks)
+                    SecondaryActionButton(label = "PLAY", icon = Icons.Rounded.PlayArrow, onClick = onPlayPlaylist, compact = true)
+                    SecondaryActionButton(label = "SHUFFLE", icon = Icons.Rounded.Shuffle, onClick = onShufflePlaylist, compact = true)
                 }
             }
         }
+
+        // Fast Portal Links (Horizontal Row)
         item {
-            SectionLabel("Быстрый доступ")
-        }
-        item {
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 item {
                     PortalCard(
-                        title = "Парсер",
-                        caption = if (uiState.sourceResults.isEmpty()) uiState.sourceStatus else "Найдено ${uiState.sourceResults.size} треков",
-                        accent = NeonCyan,
+                        title = "PARSER",
+                        caption = if (uiState.sourceResults.isEmpty()) "SEARCH ENGINE" else "${uiState.sourceResults.size} STREAM TRACKS",
+                        accent = Color.White,
                         onClick = onOpenParser,
                     )
                 }
                 item {
                     PortalCard(
-                        title = "Локальные",
-                        caption = "Треков: ${uiState.tracks.size}",
-                        accent = NeonPink,
+                        title = "LOCAL",
+                        caption = "${uiState.tracks.size} FILES READY",
+                        accent = Color.White,
                         onClick = onOpenLocal,
                     )
                 }
                 item {
                     PortalCard(
-                        title = "Плейлисты",
-                        caption = uiState.selectedPlaylistName,
-                        accent = AcidLime,
+                        title = "LISTS",
+                        caption = uiState.selectedPlaylistName.uppercase(),
+                        accent = Color.White,
                         onClick = onOpenPlaylists,
                     )
                 }
             }
         }
+
+        // Active Player Status Monitor
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                MetricCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Треки",
-                    value = uiState.tracks.size.toString(),
-                    note = "в офлайне",
-                )
-                MetricCard(
-                    modifier = Modifier.weight(1f),
-                    title = "Очередь",
-                    value = uiState.selectedPlaylistTracks.size.toString(),
-                    note = uiState.selectedPlaylistName,
-                )
-            }
-        }
-        item {
-            PanelCard(title = "Сейчас играет", accent = NeonCyan) {
+            PanelCard(title = "MONITOR // ACTIVE_DECK", accent = Color.White) {
                 Text(
-                    text = playerState.currentTrack?.title ?: "Ожидание запуска",
-                    color = InkText,
-                    style = MaterialTheme.typography.titleMedium,
+                    text = playerState.currentTrack?.title ?: "[ STANDBY // AWAITING STREAM ]",
+                    color = Color.White,
+                    fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
+                    fontSize = 14.sp,
                 )
-                Spacer(Modifier.height(4.dp))
+                Spacer(Modifier.height(2.dp))
                 Text(
-                    text = playerState.currentTrack?.artist ?: "Откройте медиатеку, парсер или плейлист для старта.",
-                    color = MutedText,
+                    text = playerState.currentTrack?.artist ?: "// SELECT TRACK TO ENGAGE AUDIO OUTPUT",
+                    color = Color(0xFF7A8498),
+                    fontFamily = FontFamily.Monospace,
+                    fontSize = 11.sp,
                 )
             }
         }
+
+        // Active Playlist Section
         item {
-            PanelCard(title = "Навигация по библиотеке", accent = NeonPink) {
-                Text(
-                    text = "Главная собирает срезы всех вкладок: локальные треки, активный плейлист и статус поиска.",
-                    color = MutedText,
-                )
-            }
+            Text(
+                text = "[ QUEUE // ${uiState.selectedPlaylistName.uppercase()} ]",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                letterSpacing = 0.8.sp,
+            )
         }
-        item {
-            SectionLabel("Активный плейлист")
-        }
+
         if (playlistPreview.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "Плейлист пуст",
-                    body = "Откройте вкладку плейлистов и выберите или создайте подборку.",
+                    title = "EMPTY_QUEUE",
+                    body = "// NO TRACKS FOUND IN CURRENT PLAYLIST",
                 )
             }
         } else {
             items(playlistPreview, key = { "playlist_preview_${it.id}" }) { track ->
                 CompactTrackCard(
                     track = track,
-                    accent = NeonPink,
+                    accent = Color.White,
                     meta = uiState.selectedPlaylistName,
                     onClick = { onPlayTrack(track.id) },
                 )
             }
         }
+
+        // Local Storage Section
         item {
-            SectionLabel("Локальные треки")
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = "[ STORAGE // LOCAL_TRACKS (${uiState.tracks.size}) ]",
+                color = Color.White,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 13.sp,
+                letterSpacing = 0.8.sp,
+            )
         }
+
         if (localPreview.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "Медиатека пуста",
-                    body = "Импортируйте локальные аудиофайлы, чтобы заполнить домашний экран.",
+                    title = "EMPTY_STORAGE",
+                    body = "// NO LOCAL FILES FOUND. USE [IMPORT] ABOVE",
                 )
             }
         } else {
             items(localPreview, key = { "local_preview_${it.id}" }) { track ->
                 CompactTrackCard(
                     track = track,
-                    accent = NeonCyan,
-                    meta = "Офлайн-библиотека",
+                    accent = Color.White,
+                    meta = "OFFLINE",
                     onClick = { onPlayTrack(track.id) },
                 )
             }

@@ -45,8 +45,8 @@ internal fun ParserSearchScreen(
 
     ScreenColumn(
         state = listState,
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 160.dp, top = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 140.dp, top = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         item {
             SearchFieldCard(
@@ -55,9 +55,9 @@ internal fun ParserSearchScreen(
                     queryDraft = it
                     onSourceQueryChange(it)
                 },
-                title = "Поиск по парсеру",
-                placeholder = "Введите артиста или название",
-                buttonLabel = "Искать",
+                title = "STREAM_HUNTER // QUERY",
+                placeholder = "ENTER ARTIST OR TRACK...",
+                buttonLabel = "SEARCH",
                 buttonIcon = Icons.Rounded.Search,
                 onSearch = { onSearchSources(queryDraft) },
             )
@@ -67,24 +67,24 @@ internal fun ParserSearchScreen(
                 status = if (selectedArtist == null) {
                     uiState.sourceStatus
                 } else {
-                    "Фильтр: $selectedArtist"
+                    "FILTER: $selectedArtist"
                 },
                 resultsCount = filteredSourceResults.size,
             )
         }
         if (authorFilters.isNotEmpty()) {
             item {
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     item {
                         FilterChip(
-                            label = "Все",
+                            label = "ALL",
                             selected = selectedArtist == null,
                             onClick = { selectedArtist = null },
                         )
                     }
                     items(authorFilters, key = { it }) { artist ->
                         FilterChip(
-                            label = artist,
+                            label = artist.uppercase(),
                             selected = selectedArtist == artist,
                             onClick = { selectedArtist = if (selectedArtist == artist) null else artist },
                         )
@@ -95,15 +95,15 @@ internal fun ParserSearchScreen(
         if (uiState.sourceResults.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "Пока пусто",
-                    body = "Запустите поиск, чтобы увидеть подходящие треки из активного источника.",
+                    title = "STANDBY",
+                    body = "// INITIATE SEARCH TO INTERCEPT REMOTE STREAM METADATA",
                 )
             }
         } else if (filteredSourceResults.isEmpty()) {
             item {
                 EmptyBlock(
-                    title = "По фильтру пусто",
-                    body = "Для выбранного автора треки не найдены. Сбросьте фильтр или выберите другого автора.",
+                    title = "FILTER_EMPTY",
+                    body = "// NO CANDIDATES MATCH FILTER",
                 )
             }
         } else {
