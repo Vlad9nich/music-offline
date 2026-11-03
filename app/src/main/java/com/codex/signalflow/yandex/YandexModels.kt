@@ -28,3 +28,12 @@ data class YandexSyncProgress(
     val message: String = "",
     val error: String? = null,
 )
+
+@Serializable
+data class YandexDeviceCode(
+    val deviceCode: String,
+    val userCode: String,
+    val verificationUrl: String,
+    val expiresIn: Int = 300,
+    val interval: Int = 5,
+)

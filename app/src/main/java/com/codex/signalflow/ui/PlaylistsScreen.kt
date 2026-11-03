@@ -24,6 +24,8 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.OpenInBrowser
@@ -70,6 +72,8 @@ internal fun PlaylistsScreen(
     onSetYandexToken: (String?) -> Unit = {},
     onToggleYandexDirectSource: () -> Unit = {},
     onStartYandexLikesSync: () -> Unit = {},
+    onStartYandexDeviceAuth: () -> Unit = {},
+    onCancelYandexDeviceAuth: () -> Unit = {},
 ) {
     var draftName by rememberSaveable { mutableStateOf("") }
     var isDetailOpen by rememberSaveable(uiState.selectedPlaylistId) { mutableStateOf(false) }
@@ -179,7 +183,79 @@ internal fun PlaylistsScreen(
 
                     Spacer(Modifier.height(8.dp))
 
-                    // Token input row
+                    // Device Auth Box if currently active
+                    if (uiState.yandexDeviceCode != null) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFF040A10), CutSmallShape)
+                                .border(1.dp, Color(0xFF00FF66), CutSmallShape)
+                                .padding(12.dp),
+                        ) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "● АВТОРИЗАЦИЯ YANDEX DEVICE FLOW",
+                                    color = Color(0xFF00FF66),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                )
+                                Text(
+                                    text = "Код подтверждения: ${uiState.yandexDeviceCode.userCode.uppercase()}\nПерейдите на ya.ru/device и подтвердите вход.",
+                                    color = Color(0xFFD6E2F0),
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 11.sp,
+                                    lineHeight = 15.sp,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    PrimaryActionButton(
+                                        modifier = Modifier.weight(1f),
+                                        label = "ОТКРЫТЬ YA.RU/DEVICE",
+                                        icon = Icons.Rounded.OpenInBrowser,
+                                        onClick = {
+                                            val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse(uiState.yandexDeviceCode.verificationUrl))
+                                            context.startActivity(browserIntent)
+                                        },
+                                        compact = true,
+                                    )
+                                    SecondaryActionButton(
+                                        label = "ОТМЕНА",
+                                        icon = Icons.Rounded.Clear,
+                                        onClick = onCancelYandexDeviceAuth,
+                                        compact = true,
+                                    )
+                                }
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    } else {
+                        // Quick Action Buttons: Device Flow vs Start Sync
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            SecondaryActionButton(
+                                modifier = Modifier.weight(1f),
+                                label = "ВОЙТИ ПО КОДУ (YA.RU)",
+                                icon = Icons.Rounded.Key,
+                                onClick = onStartYandexDeviceAuth,
+                                compact = true,
+                            )
+                            PrimaryActionButton(
+                                modifier = Modifier.weight(1f),
+                                label = if (syncProgress.isRunning) "КОНВЕЙЕР..." else "СИНХР. ЛАЙКИ",
+                                icon = Icons.Rounded.Sync,
+                                onClick = onStartYandexLikesSync,
+                                compact = true,
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
+
+                    // Manual Token Input Row (if user already has token)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -189,40 +265,39 @@ internal fun PlaylistsScreen(
                             CyberTextField(
                                 value = yandexTokenInput,
                                 onValueChange = { yandexTokenInput = it },
-                                placeholder = "YANDEX OAUTH TOKEN...",
+                                placeholder = "ИЛИ ВСТАВЬТЕ ТОКЕН ВРУЧНУЮ...",
                                 imeAction = ImeAction.Done,
                             )
                         }
                         SecondaryActionButton(
                             label = "СОХРАНИТЬ",
-                            icon = Icons.Rounded.Key,
+                            icon = Icons.Rounded.Check,
                             onClick = { onSetYandexToken(yandexTokenInput) },
                             compact = true,
                         )
                     }
 
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(6.dp))
 
-                    // Buttons: Get Token link & Start Sync
+                    // Implicit OAuth Link
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
+                        Text(
+                            text = "ИНСТРУКЦИЯ / ПОЛУЧИТЬ ТОКЕН:",
+                            color = Color(0xFF6E8096),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 10.sp,
+                        )
                         SecondaryActionButton(
-                            modifier = Modifier.weight(1f),
-                            label = "ПОЛУЧИТЬ ТОКЕН",
+                            label = "ССЫЛКА НА ТОКЕН",
                             icon = Icons.Rounded.OpenInBrowser,
                             onClick = {
-                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ym.marshal.dev/token/#"))
+                                val browserIntent = Intent(Intent.ACTION_VIEW, Uri.parse("https://oauth.yandex.ru/authorize?response_type=token&client_id=23cabbbdc6cd418abb4b39c32c41195d"))
                                 context.startActivity(browserIntent)
                             },
-                            compact = true,
-                        )
-                        PrimaryActionButton(
-                            modifier = Modifier.weight(1f),
-                            label = if (syncProgress.isRunning) "КОНВЕЙЕР РАБОТАЕТ..." else "СИНХР. ЛАЙКИ",
-                            icon = Icons.Rounded.Sync,
-                            onClick = onStartYandexLikesSync,
                             compact = true,
                         )
                     }

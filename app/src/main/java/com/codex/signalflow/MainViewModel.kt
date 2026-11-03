@@ -23,6 +23,7 @@ import com.codex.signalflow.source.MusicSourceCatalog
 import com.codex.signalflow.source.RemoteTrackCandidate
 import com.codex.signalflow.source.SourceDescriptor
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +52,7 @@ data class MainUiState(
     val yandexToken: String? = null,
     val isYandexDirectSourceEnabled: Boolean = false,
     val yandexSyncProgress: com.codex.signalflow.yandex.YandexSyncProgress = com.codex.signalflow.yandex.YandexSyncProgress(),
+    val yandexDeviceCode: com.codex.signalflow.yandex.YandexDeviceCode? = null,
 )
 
 internal fun buildSelectedPlaylistTracks(
@@ -167,13 +169,15 @@ class MainViewModel(
         downloadingTrackKeys,
         yandexSyncManager.token,
         yandexSyncManager.isDirectSourceEnabled,
-        yandexSyncManager.progress,
-    ) { state, downloadingKeys, yToken, yDirectEnabled, yProgress ->
+        combine(yandexSyncManager.progress, yandexSyncManager.deviceAuthCode) { p, code -> p to code },
+    ) { state, downloadingKeys, yToken, yDirectEnabled, progressAndCode ->
+        val (yProgress, yCode) = progressAndCode
         state.copy(
             downloadingTrackKeys = downloadingKeys,
             yandexToken = yToken,
             isYandexDirectSourceEnabled = yDirectEnabled,
             yandexSyncProgress = yProgress,
+            yandexDeviceCode = yCode,
             sourceDescriptors = sourceCatalog.descriptors,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState(sourceDescriptors = sourceCatalog.descriptors))
@@ -527,6 +531,37 @@ class MainViewModel(
         viewModelScope.launch {
             yandexSyncManager.runLikesImportPipeline(sourceCatalog, repository)
         }
+    }
+
+    fun startYandexDeviceAuth() {
+        viewModelScope.launch {
+            yandexSyncManager.startDeviceAuth()
+                .onSuccess { code ->
+                    snackbar.value = "Код: ${code.userCode}. Подтвердите вход на ${code.verificationUrl}"
+                    pollDeviceAuthLoop(code.deviceCode, code.interval, code.expiresIn)
+                }
+                .onFailure {
+                    snackbar.value = "Ошибка запроса кода: ${it.message}"
+                }
+        }
+    }
+
+    private fun pollDeviceAuthLoop(deviceCode: String, intervalSeconds: Int, expiresInSeconds: Int) {
+        viewModelScope.launch {
+            val deadline = System.currentTimeMillis() + (expiresInSeconds * 1000L)
+            while (System.currentTimeMillis() < deadline) {
+                delay((intervalSeconds * 1000L).coerceAtLeast(4000L))
+                val token = yandexSyncManager.pollDeviceAuthOnce()
+                if (token != null) {
+                    snackbar.value = "Успешная авторизация в Яндекс Музыке!"
+                    break
+                }
+            }
+        }
+    }
+
+    fun cancelYandexDeviceAuth() {
+        yandexSyncManager.cancelDeviceAuth()
     }
 
     fun release() = Unit

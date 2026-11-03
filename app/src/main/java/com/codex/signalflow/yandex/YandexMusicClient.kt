@@ -27,6 +27,87 @@ class YandexMusicClient {
         private const val USER_AGENT = "YandexMusicAndroid/2024.08.1 (Android 14; Mobile)"
         // Standard secret salt used by Yandex Music mobile/API manifests
         private const val DOWNLOAD_SECRET_SALT = "XGRlBW9FXlekgbPrRHuSiA"
+        // Official Yandex Android OAuth credentials
+        private const val OAUTH_BASE = "https://oauth.yandex.ru"
+        private const val DEFAULT_CLIENT_ID = "23cabbbdc6cd418abb4b39c32c41195d"
+        private const val DEFAULT_CLIENT_SECRET = "53bc75238f0c4d08a118e51fe9203300"
+    }
+
+    /**
+     * OAuth Device Flow: Requests user code and verification URL from Yandex OAuth.
+     */
+    suspend fun requestDeviceCode(): Result<YandexDeviceCode> = withContext(Dispatchers.IO) {
+        runCatching {
+            val randomDeviceId = (1..10).map { (('a'..'z') + ('0'..'9')).random() }.joinToString("")
+            val formBody = "client_id=$DEFAULT_CLIENT_ID&device_id=$randomDeviceId&device_name=SignalFlowApp"
+            val response = executeFormPost("$OAUTH_BASE/device/code", formBody)
+            val json = JSONObject(response)
+            YandexDeviceCode(
+                deviceCode = json.getString("device_code"),
+                userCode = json.getString("user_code"),
+                verificationUrl = json.optString("verification_url", "https://ya.ru/device"),
+                expiresIn = json.optInt("expires_in", 300),
+                interval = json.optInt("interval", 5),
+            )
+        }
+    }
+
+    /**
+     * OAuth Device Flow: Polls for the OAuth token after user enters code.
+     * Returns null while authorization is still pending.
+     */
+    suspend fun pollDeviceToken(deviceCode: String): Result<String?> = withContext(Dispatchers.IO) {
+        runCatching {
+            val formBody = "grant_type=device_code&code=$deviceCode&client_id=$DEFAULT_CLIENT_ID&client_secret=$DEFAULT_CLIENT_SECRET"
+            val url = URL("$OAUTH_BASE/token")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                doInput = true
+                setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+                setRequestProperty("User-Agent", USER_AGENT)
+                connectTimeout = 10000
+                readTimeout = 10000
+            }
+            conn.outputStream.use { os ->
+                OutputStreamWriter(os, StandardCharsets.UTF_8).use { it.write(formBody) }
+            }
+            val responseCode = conn.responseCode
+            if (responseCode == 200) {
+                val resp = conn.inputStream.bufferedReader().use { it.readText() }
+                val json = JSONObject(resp)
+                json.getString("access_token")
+            } else {
+                val errResp = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: ""
+                if (errResp.contains("authorization_pending")) {
+                    null // User has not confirmed yet
+                } else {
+                    error("OAuth error: $errResp")
+                }
+            }
+        }
+    }
+
+    private fun executeFormPost(urlString: String, formBody: String): String {
+        val url = URL(urlString)
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            doOutput = true
+            doInput = true
+            setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            setRequestProperty("User-Agent", USER_AGENT)
+            connectTimeout = 10000
+            readTimeout = 10000
+        }
+        conn.outputStream.use { os ->
+            OutputStreamWriter(os, StandardCharsets.UTF_8).use { it.write(formBody) }
+        }
+        val responseCode = conn.responseCode
+        if (responseCode !in 200..299) {
+            val err = conn.errorStream?.bufferedReader()?.use { it.readText() } ?: "HTTP $responseCode"
+            error("Request to $urlString failed ($responseCode): $err")
+        }
+        return conn.inputStream.bufferedReader().use { it.readText() }
     }
 
     /**

@@ -117,6 +117,8 @@ class MainActivity : ComponentActivity() {
                     onSetYandexToken = viewModel::setYandexToken,
                     onToggleYandexDirectSource = viewModel::toggleYandexDirectSource,
                     onStartYandexLikesSync = viewModel::startYandexLikesSync,
+                    onStartYandexDeviceAuth = viewModel::startYandexDeviceAuth,
+                    onCancelYandexDeviceAuth = viewModel::cancelYandexDeviceAuth,
                 )
             }
         }

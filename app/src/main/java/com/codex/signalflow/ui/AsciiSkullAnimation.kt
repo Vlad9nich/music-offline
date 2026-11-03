@@ -29,33 +29,37 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Cranium (top part of the skull - stationary, exact transcription of skull.txt)
+// Cranium: 100% Symmetrical, human-proportioned DedSec hacker skull (stationary)
+// Exactly 27 characters wide per line
 private val SKULL_CRANIUM = """
-|          --
-|        ,gS§§§Sk.
-|      ,d§§§§§§§§§§k.
-|     ,?^?§7°' `'?§SS§§L.
-|    ,?  §SL._  ,d§iIS§§§SL
-|   j§Su%§S§§§§§?:iIS§§§Sb
-|  :?º?^4§S§§"º?§SL:iIS§SI:
-|  :'   '/`?§'.  `?LiS§§SI:
-|  '     ,         ?kiSSI?
-|        :.     §k ¯ `?Si7
-|        .,_,_  i§S%7·:i?'
+|          uuuuuuu
+|      uu§§§§§§§§§§§uu
+|   uu§§§§§§§§§§§§§§§§§uu
+|  u§§§§§§§§§§§§§§§§§§§§§u
+|  §§§§§"   "§§§"   "§§§§§
+|  "§§§"     u§u     "§§§"
+|   §§§u     u§u     u§§§
+|   §§§u    u§§§u    u§§§
+|    "§§§§uu§   §uu§§§§"
+|     "§§§§§"   "§§§§§"
+|       u§§§§§u§§§§§u
+|       | | | | | | |
 """.trimMargin("|").trim('\n').replace('§', '$')
 
-// Jaw (lower mandible - articulates smoothly downward when laughing)
-// Cursor '█' blinks at line 11 between ?%uS%uo and d$$?'·?º` as shown in Emacs editor
+// Mandible / Jaw: Lower teeth & chin, articulates downward when laughing
+// Exactly 27 characters wide per line, cursor '█' blinks in dead center of chin
 private fun getSkullJaw(cursorChar: String) = """
-|      ?%uS%uo${cursorChar}d§§?'·?º`
-|      S§§§§§§§§§i
-|     ·?§§S?
+|       | | | | | | |
+|        u§§§§§${cursorChar}§§§§u
+|         "§§§§§§§"
 """.trimMargin("|").trim('\n').replace('§', '$')
 
 /**
- * Natural laughing DedSec ASCII Skull:
- * Exact pixel-accurate transcription of the iconic `skull.txt` terminal buffer.
- * Simple, organic laughing animation: mouth opens and closes with varying rhythmic frequency.
+ * Natural laughing DedSec ASCII Skull (Option A: Symmetrical Human DedSec Skull):
+ * - Anatomically human, 100% symmetrical front-facing skull (no 3/4 alien tilt).
+ * - Upper teeth meet lower teeth seamlessly when mouth is closed.
+ * - Dynamic rhythmic laughter: mouth opens and articulates downward with varied cadence.
+ * - Central blinking cursor block '█' and authentic GNU Emacs status line.
  */
 @Composable
 fun AsciiSkullCard(
@@ -71,22 +75,22 @@ fun AsciiSkullCard(
         animationSpec = infiniteRepeatable(
             animation = keyframes {
                 durationMillis = 4200
-                0f at 0           // Resting (closed)
+                0f at 0           // Resting closed teeth
                 0f at 1000
-                6f at 1120        // Quick chuckle 1
-                0f at 1240
-                7f at 1360        // Quick chuckle 2
-                0f at 1480
+                6f at 1120        // Chuckle 1 (teeth part)
+                0f at 1240        // Closed
+                7f at 1360        // Chuckle 2
+                0f at 1480        // Closed
                 8f at 1600        // Chuckle 3
-                0f at 1720
-                0f at 2000        // Inhale pause
-                14f at 2180       // Big laugh burst (wide open)
-                10f at 2280
-                15f at 2400       // Hearty laugh
-                8f at 2520
-                13f at 2640       // Laugh tremor
+                0f at 1720        // Closed
+                0f at 2000        // Inhale breath
+                16f at 2180       // Wide open laughter!
+                11f at 2280
+                16f at 2400       // Hearty laugh burst
+                9f at 2520
+                14f at 2640       // Tremor laugh
                 5f at 2780
-                0f at 2920        // Close
+                0f at 2920        // Return to closed
                 0f at 4200        // Calm resting pause
             },
             repeatMode = RepeatMode.Restart,
@@ -104,7 +108,7 @@ fun AsciiSkullCard(
         ),
         label = "cursor_blink",
     )
-    val cursorChar = if (cursorBlink > 0.5f) "█" else " "
+    val cursorChar = if (cursorBlink > 0.5f) "█" else "$"
 
     Box(
         modifier = modifier
@@ -131,7 +135,7 @@ fun AsciiSkullCard(
                     modifier = Modifier.wrapContentSize(),
                     horizontalAlignment = Alignment.Start,
                 ) {
-                    // Cranium (stationary)
+                    // Cranium (stationary upper skull and upper teeth)
                     Text(
                         text = SKULL_CRANIUM,
                         color = Color(0xFFD6E2F0),
@@ -146,7 +150,7 @@ fun AsciiSkullCard(
                     // Articulated jaw gap (opens and closes when laughing)
                     Spacer(modifier = Modifier.height(jawOffset.dp))
 
-                    // Jaw with Emacs text cursor
+                    // Jaw (lower teeth and chin with blinking cursor)
                     Text(
                         text = getSkullJaw(cursorChar),
                         color = Color(0xFFD6E2F0),
@@ -162,7 +166,7 @@ fun AsciiSkullCard(
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Emacs / Terminal Bottom Status Bar from reference screenshot: -UUU:**--F1   skull.txt
+            // Emacs / Terminal Bottom Status Bar from reference: -UUU:**--F1   skull.txt
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

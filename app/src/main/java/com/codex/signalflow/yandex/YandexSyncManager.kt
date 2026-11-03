@@ -30,10 +30,33 @@ class YandexSyncManager(
     private val _progress = MutableStateFlow(YandexSyncProgress())
     val progress: StateFlow<YandexSyncProgress> = _progress.asStateFlow()
 
+    private val _deviceAuthCode = MutableStateFlow<YandexDeviceCode?>(null)
+    val deviceAuthCode: StateFlow<YandexDeviceCode?> = _deviceAuthCode.asStateFlow()
+
     fun setToken(newToken: String?) {
         val clean = newToken?.trim()?.takeIf { it.isNotBlank() }
         prefs.edit().putString(KEY_TOKEN, clean).apply()
         _token.value = clean
+    }
+
+    suspend fun startDeviceAuth(): Result<YandexDeviceCode> = withContext(Dispatchers.IO) {
+        val res = client.requestDeviceCode()
+        res.onSuccess { _deviceAuthCode.value = it }
+        res
+    }
+
+    suspend fun pollDeviceAuthOnce(): String? = withContext(Dispatchers.IO) {
+        val code = _deviceAuthCode.value ?: return@withContext null
+        val tokenRes = client.pollDeviceToken(code.deviceCode).getOrNull()
+        if (tokenRes != null) {
+            setToken(tokenRes)
+            _deviceAuthCode.value = null
+        }
+        tokenRes
+    }
+
+    fun cancelDeviceAuth() {
+        _deviceAuthCode.value = null
     }
 
     fun setDirectSourceEnabled(enabled: Boolean) {

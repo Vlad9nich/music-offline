@@ -171,6 +171,8 @@ fun SignalFlowApp(
     onSetYandexToken: (String?) -> Unit = {},
     onToggleYandexDirectSource: () -> Unit = {},
     onStartYandexLikesSync: () -> Unit = {},
+    onStartYandexDeviceAuth: () -> Unit = {},
+    onCancelYandexDeviceAuth: () -> Unit = {},
 ) {
     var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var isExpandedPlayerOpen by rememberSaveable { mutableStateOf(false) }
@@ -281,6 +283,8 @@ fun SignalFlowApp(
                             onSetYandexToken = onSetYandexToken,
                             onToggleYandexDirectSource = onToggleYandexDirectSource,
                             onStartYandexLikesSync = onStartYandexLikesSync,
+                            onStartYandexDeviceAuth = onStartYandexDeviceAuth,
+                            onCancelYandexDeviceAuth = onCancelYandexDeviceAuth,
                         )
                     }
                 }
