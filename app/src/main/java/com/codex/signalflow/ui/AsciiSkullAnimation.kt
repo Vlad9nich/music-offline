@@ -25,8 +25,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentSize
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,8 +37,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -44,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.signalflow.R
+import kotlinx.coroutines.delay
 
 // Cranium: 1:1 Matrix replica of user's uploaded reference (curved cranial vault looking upward, dark eye sockets)
 // Exactly 45 characters wide per line, perfectly symmetrical & centered
@@ -94,6 +100,7 @@ private fun getAsciiJaw45(cursorChar: String) = """
 /**
  * DedSec Glitch Skull Monitor (Direct 1:1 Implementation of User's Uploaded Reference):
  * - Authentic Watch Dogs phosphor scanline graphics with laughing / articulating jaw.
+ * - Interactive: On tap, skull enters rapid jaw-chattering attack overdrive with blazing red eye sockets!
  * - Perfectly symmetrical, upward-looking cranial vault with sharp cheekbones and tapered chin.
  * - Articulated mandible that drops downward into a wide screaming / laughing open mouth.
  * - Interactive mode toggle: RASTER GLITCH (default photo replica) <-> ASCII MATRIX (45-col text).
@@ -105,10 +112,23 @@ fun AsciiSkullCard(
     title: String = "skull.txt",
 ) {
     var isAsciiMode by remember { mutableStateOf(false) }
-    val transition = rememberInfiniteTransition(label = "skull_laugh_loop")
+    var isAttacking by remember { mutableStateOf(false) }
+    var attackTrigger by remember { mutableStateOf(0L) }
+    val haptic = LocalHapticFeedback.current
 
-    // Animated jaw offset (dp) simulating natural varied laughter
-    val jawOffset by transition.animateFloat(
+    val transition = rememberInfiniteTransition(label = "skull_loop")
+
+    // Timer for attack overdrive mode (chatter + red eyes for 2.6 seconds)
+    LaunchedEffect(attackTrigger) {
+        if (attackTrigger > 0L) {
+            isAttacking = true
+            delay(2600)
+            isAttacking = false
+        }
+    }
+
+    // Normal idle laughing jaw animation
+    val normalJawOffset by transition.animateFloat(
         initialValue = 0f,
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
@@ -134,7 +154,32 @@ fun AsciiSkullCard(
             },
             repeatMode = RepeatMode.Restart,
         ),
-        label = "jaw_offset",
+        label = "normal_jaw_offset",
+    )
+
+    // Rapid chatter jaw animation triggered by user tap
+    val rapidChatterOffset by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 16f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 75, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "rapid_chatter_offset",
+    )
+
+    // Active jaw offset depending on interactive state
+    val activeJawOffset = if (isAttacking) rapidChatterOffset else normalJawOffset
+
+    // Eye socket red pulsating glow animation
+    val eyePulse by transition.animateFloat(
+        initialValue = 0.75f,
+        targetValue = 1.35f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 85, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "eye_pulse",
     )
 
     // Glitch horizontal jitter offset for CRT / DedSec distortion
@@ -143,16 +188,27 @@ fun AsciiSkullCard(
         targetValue = 0f,
         animationSpec = infiniteRepeatable(
             animation = keyframes {
-                durationMillis = 3600
-                0f at 0
-                0f at 2100
-                3f at 2150
-                (-3f) at 2200
-                0f at 2250
-                0f at 3200
-                (-2f) at 3240
-                0f at 3280
-                0f at 3600
+                durationMillis = if (isAttacking) 800 else 3600
+                if (isAttacking) {
+                    0f at 0
+                    4f at 100
+                    (-4f) at 200
+                    5f at 300
+                    (-3f) at 400
+                    0f at 500
+                    (-4f) at 600
+                    0f at 800
+                } else {
+                    0f at 0
+                    0f at 2100
+                    3f at 2150
+                    (-3f) at 2200
+                    0f at 2250
+                    0f at 3200
+                    (-2f) at 3240
+                    0f at 3280
+                    0f at 3600
+                }
             },
             repeatMode = RepeatMode.Restart,
         ),
@@ -176,8 +232,12 @@ fun AsciiSkullCard(
             .fillMaxWidth()
             .clip(CutPanelShape)
             .background(Color.Black)
-            .border(1.dp, Color(0xFF1E2836), CutPanelShape)
-            .techCornerMarks(markColor = Color(0x66FFFFFF)),
+            .border(
+                width = 1.dp,
+                color = if (isAttacking) Color(0xFFFF003C) else Color(0xFF1E2836),
+                shape = CutPanelShape,
+            )
+            .techCornerMarks(markColor = if (isAttacking) Color(0xFFFF003C) else Color(0x66FFFFFF)),
     ) {
         Column(
             modifier = Modifier
@@ -185,11 +245,15 @@ fun AsciiSkullCard(
                 .padding(top = 12.dp, bottom = 0.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // DedSec Skull Stage (Height 310.dp)
+            // Interactive DedSec Skull Stage (Tap to trigger chatter & red eyes)
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(310.dp),
+                    .height(310.dp)
+                    .clickable {
+                        attackTrigger = System.currentTimeMillis()
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 // Background Dot Grid (Replicating user's uploaded wallpaper)
@@ -198,10 +262,11 @@ fun AsciiSkullCard(
                     val dotRadius = 1.dp.toPx()
                     val cols = (size.width / step).toInt()
                     val rows = (size.height / step).toInt()
+                    val dotColor = if (isAttacking) Color(0x28FF003C) else Color(0x18FFFFFF)
                     for (c in 0..cols) {
                         for (r in 0..rows) {
                             drawCircle(
-                                color = Color(0x18FFFFFF),
+                                color = dotColor,
                                 radius = dotRadius,
                                 center = Offset(c * step + (step / 2), r * step + (step / 2)),
                             )
@@ -217,7 +282,7 @@ fun AsciiSkullCard(
                             .offset(x = glitchShift.dp),
                         contentAlignment = Alignment.TopCenter,
                     ) {
-                        // A) Mandible / Jaw: placed behind cranium, articulates downward on laugh
+                        // A) Mandible / Jaw: placed behind cranium, articulates downward on laugh / chatter
                         // Original ratio: width 455, height 300; resting Y offset = 148.dp
                         Image(
                             painter = painterResource(id = R.drawable.dedsec_skull_jaw),
@@ -225,7 +290,7 @@ fun AsciiSkullCard(
                             modifier = Modifier
                                 .width(220.dp)
                                 .height(145.dp)
-                                .offset(y = (148f + jawOffset).dp),
+                                .offset(y = (148f + activeJawOffset).dp),
                             contentScale = ContentScale.FillWidth,
                         )
 
@@ -239,9 +304,66 @@ fun AsciiSkullCard(
                                 .height(198.dp),
                             contentScale = ContentScale.FillWidth,
                         )
+
+                        // C) Red Burning Eye Sockets (Triggered on tap)
+                        if (isAttacking) {
+                            // Left eye socket center: x = 64.5.dp, y = 85.5.dp
+                            val eyeGlowSize = (26f * eyePulse).dp
+                            val eyeCoreSize = (7f * eyePulse).dp
+
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = 64.5.dp - (eyeGlowSize / 2), y = 85.5.dp - (eyeGlowSize / 2))
+                                    .size(eyeGlowSize)
+                                    .background(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                Color(0xFFFF003C),
+                                                Color(0xCCFF0022),
+                                                Color(0x44FF0011),
+                                                Color.Transparent,
+                                            ),
+                                        ),
+                                        shape = CircleShape,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(eyeCoreSize)
+                                        .background(Color(0xFFFFE0E0), CircleShape),
+                                )
+                            }
+
+                            // Right eye socket center: x = 154.2.dp, y = 85.5.dp
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = 154.2.dp - (eyeGlowSize / 2), y = 85.5.dp - (eyeGlowSize / 2))
+                                    .size(eyeGlowSize)
+                                    .background(
+                                        brush = Brush.radialGradient(
+                                            colors = listOf(
+                                                Color(0xFFFF003C),
+                                                Color(0xCCFF0022),
+                                                Color(0x44FF0011),
+                                                Color.Transparent,
+                                            ),
+                                        ),
+                                        shape = CircleShape,
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(eyeCoreSize)
+                                        .background(Color(0xFFFFE0E0), CircleShape),
+                                )
+                            }
+                        }
                     }
                 } else {
                     // 2) ASCII MATRIX MODE: 45-character centered text grid
+                    val asciiTextColor = if (isAttacking) Color(0xFFFF2233) else Color(0xFFD6E2F0)
                     Column(
                         modifier = Modifier
                             .wrapContentSize()
@@ -251,7 +373,7 @@ fun AsciiSkullCard(
                         // Cranium
                         Text(
                             text = ASCII_CRANIUM_45,
-                            color = Color(0xFFD6E2F0),
+                            color = asciiTextColor,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 7.5.sp,
                             lineHeight = 9.sp,
@@ -261,12 +383,12 @@ fun AsciiSkullCard(
                         )
 
                         // Articulated jaw gap
-                        Spacer(modifier = Modifier.height((jawOffset * 0.7f).dp))
+                        Spacer(modifier = Modifier.height((activeJawOffset * 0.7f).dp))
 
                         // Jaw
                         Text(
                             text = getAsciiJaw45(cursorChar),
-                            color = Color(0xFFD6E2F0),
+                            color = asciiTextColor,
                             fontFamily = FontFamily.Monospace,
                             fontSize = 7.5.sp,
                             lineHeight = 9.sp,
@@ -280,11 +402,16 @@ fun AsciiSkullCard(
 
             Spacer(modifier = Modifier.height(6.dp))
 
-            // Emacs / Terminal Bottom Status Bar: -UUU:**--F1 skull.txt [ РАСТР / ASCII ]
+            // Emacs / Terminal Bottom Status Bar: Interactive mode & status
+            val statusBg = if (isAttacking) Color(0xFFFF003C) else Color(0xFF9EACB8)
+            val statusFg = if (isAttacking) Color.White else Color.Black
+            val statusLabel = if (isAttacking) "! DEDSEC OVERDRIVE !" else "-UUU:**--F1   $title"
+            val badgeLabel = if (isAttacking) "[ CHATTER ]" else if (isAsciiMode) "[ASCII]" else "[GLITCH]"
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFF9EACB8))
+                    .background(statusBg)
                     .clickable { isAsciiMode = !isAsciiMode }
                     .padding(horizontal = 10.dp, vertical = 3.dp),
             ) {
@@ -294,15 +421,15 @@ fun AsciiSkullCard(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "-UUU:**--F1   $title",
-                        color = Color.Black,
+                        text = statusLabel,
+                        color = statusFg,
                         fontFamily = FontFamily.Monospace,
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = if (isAsciiMode) "[ASCII]" else "[GLITCH]",
-                        color = Color(0xFF003311),
+                        text = badgeLabel,
+                        color = if (isAttacking) Color.Yellow else Color(0xFF003311),
                         fontFamily = FontFamily.Monospace,
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,

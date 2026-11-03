@@ -39,6 +39,7 @@ import androidx.compose.material.icons.rounded.Shuffle
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -130,22 +131,25 @@ internal fun PlaylistsScreen(
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         PrimaryActionButton(
+                            modifier = Modifier.weight(1f),
                             label = "СЛУШАТЬ",
                             icon = Icons.Rounded.PlayArrow,
                             onClick = onPlayPlaylist,
                             compact = true,
                         )
                         SecondaryActionButton(
+                            modifier = Modifier.weight(1f),
                             label = "МИКС",
                             icon = Icons.Rounded.Shuffle,
                             onClick = onShufflePlaylist,
                             compact = true,
                         )
                         SecondaryActionButton(
-                            label = "СКАНЕР OCR",
+                            modifier = Modifier.weight(1f),
+                            label = "СКАН",
                             icon = Icons.Rounded.DocumentScanner,
                             onClick = onImportPlaylistScreenshots,
                             compact = true,
@@ -518,39 +522,71 @@ internal fun PlaylistsScreen(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SecondaryActionButton(
-                            label = "НАЗАД",
-                            icon = Icons.AutoMirrored.Rounded.ArrowBack,
-                            onClick = { isDetailOpen = false },
-                            compact = true,
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CutSmallShape)
+                                .background(Color(0xFF141924))
+                                .border(1.dp, Color(0xFF283446), CutSmallShape)
+                                .tactileClickable { isDetailOpen = false },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Rounded.ArrowBack,
+                                contentDescription = "Назад",
+                                tint = Color.White,
+                                modifier = Modifier.size(17.dp),
+                            )
+                        }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = uiState.selectedPlaylistName.uppercase(),
                                 color = Color.White,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp,
+                                fontSize = 13.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = "ТРЕКОВ: ${uiState.selectedPlaylistTracks.size}",
                                 color = Color(0xFF7A8498),
                                 fontFamily = FontFamily.Monospace,
-                                fontSize = 11.sp,
+                                fontSize = 10.sp,
                             )
                         }
-                        PrimaryActionButton(
-                            label = "ПУСК",
-                            icon = Icons.Rounded.PlayArrow,
-                            onClick = onPlayPlaylist,
-                            compact = true,
-                        )
-                        SecondaryActionButton(
-                            label = "МИКС",
-                            icon = Icons.Rounded.Shuffle,
-                            onClick = onShufflePlaylist,
-                            compact = true,
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CutSmallShape)
+                                .background(Color(0xFF141924))
+                                .border(1.dp, Color(0xFF283446), CutSmallShape)
+                                .tactileClickable(onClick = onShufflePlaylist),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Shuffle,
+                                contentDescription = "Микс",
+                                tint = Color(0xFFD6E2F0),
+                                modifier = Modifier.size(16.dp),
+                            )
+                        }
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CutSmallShape)
+                                .background(Color.White)
+                                .border(1.dp, Color.White, CutSmallShape)
+                                .tactileClickable(onClick = onPlayPlaylist),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.PlayArrow,
+                                contentDescription = "Пуск",
+                                tint = Color.Black,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                     CyberTextField(
@@ -689,20 +725,43 @@ private fun PlaylistCard(
                 }
             }
 
-            // Quick Play Actions
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                SecondaryActionButton(
-                    label = "МИКС",
-                    icon = Icons.Rounded.Shuffle,
-                    onClick = onShuffle,
-                    compact = true,
-                )
-                PrimaryActionButton(
-                    label = "ПУСК",
-                    icon = Icons.Rounded.PlayArrow,
-                    onClick = onPlay,
-                    compact = true,
-                )
+            // Quick Play Actions (Compact 36dp tactile icon buttons)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CutSmallShape)
+                        .background(Color(0xFF141924))
+                        .border(1.dp, Color(0xFF283446), CutSmallShape)
+                        .tactileClickable(onClick = onShuffle),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Shuffle,
+                        contentDescription = "Микс",
+                        tint = Color(0xFFD6E2F0),
+                        modifier = Modifier.size(16.dp),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CutSmallShape)
+                        .background(Color.White)
+                        .border(1.dp, Color.White, CutSmallShape)
+                        .tactileClickable(onClick = onPlay),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.PlayArrow,
+                        contentDescription = "Пуск",
+                        tint = Color.Black,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }

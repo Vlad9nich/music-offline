@@ -1213,6 +1213,7 @@ internal fun PrimaryActionButton(
         inverted = true,
         icon = icon,
         text = label,
+        compact = compact,
     )
 }
 
@@ -1230,6 +1231,7 @@ internal fun SecondaryActionButton(
         inverted = false,
         icon = icon,
         text = label,
+        compact = compact,
     )
 }
 

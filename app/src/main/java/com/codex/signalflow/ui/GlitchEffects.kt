@@ -299,6 +299,7 @@ fun TactileButton(
     icon: ImageVector? = null,
     text: String? = null,
     badge: String? = null,
+    compact: Boolean = false,
 ) {
     val bgColor = when {
         !enabled -> Color(0xFF10141A)
@@ -319,12 +320,17 @@ fun TactileButton(
         else -> Color(0xFF2D3848)
     }
 
+    val hPadding = if (compact) 8.dp else 12.dp
+    val vPadding = if (compact) 6.dp else 9.dp
+    val iconSize = if (compact) 14.dp else 17.dp
+    val textSize = if (compact) 11.sp else 12.sp
+
     Box(
         modifier = modifier
             .tactileClickable(enabled = enabled, onClick = onClick)
             .background(bgColor, CutButtonShape)
             .border(1.dp, borderColor, CutButtonShape)
-            .padding(horizontal = 12.dp, vertical = 9.dp),
+            .padding(horizontal = hPadding, vertical = vPadding),
         contentAlignment = Alignment.Center,
     ) {
         Row(
@@ -336,10 +342,10 @@ fun TactileButton(
                     imageVector = icon,
                     contentDescription = text,
                     tint = contentColor,
-                    modifier = Modifier.size(17.dp),
+                    modifier = Modifier.size(iconSize),
                 )
                 if (text != null) {
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(if (compact) 4.dp else 6.dp))
                 }
             }
             if (text != null) {
@@ -347,7 +353,7 @@ fun TactileButton(
                     text = text,
                     color = contentColor,
                     fontFamily = FontFamily.Monospace,
-                    fontSize = 12.sp,
+                    fontSize = textSize,
                     fontWeight = if (inverted) FontWeight.Bold else FontWeight.SemiBold,
                     letterSpacing = 0.5.sp,
                 )
