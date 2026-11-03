@@ -3,6 +3,7 @@ package com.codex.signalflow.yandex
 import android.content.Context
 import android.util.Log
 import com.codex.signalflow.data.LibraryRepository
+import com.codex.signalflow.source.AudioJunkFilter
 import com.codex.signalflow.source.DownloadBlueprint
 import com.codex.signalflow.source.MusicSourceCatalog
 import com.codex.signalflow.source.RemoteTrackCandidate
@@ -181,8 +182,13 @@ class YandexSyncManager(
                     // -----------------------------------------------------------
                     if (!wasDownloaded && (isDirectSourceEnabled.value || !currentToken.isNullOrBlank())) {
                         try {
+                            val directMsg = if (primaryCandidates.isNotEmpty() && bestPrimaryMatch == null) {
+                                "[$currentNumber / $total] Парсер отклонён (мусор/модификации). Загрузка через Яндекс Direct: $trackTitle..."
+                            } else {
+                                "[$currentNumber / $total] Загрузка через Яндекс Direct: $trackTitle..."
+                            }
                             _progress.value = _progress.value.copy(
-                                message = "[$currentNumber / $total] Загрузка через Яндекс Direct: $trackTitle...",
+                                message = directMsg,
                             )
                             val directUrl = client.resolveDirectDownloadUrl(currentToken, track.id).getOrThrow()
                             val filename = "${track.artist} - ${track.title}.mp3".replace(Regex("[/\\\\:*?\"<>|]"), "_")
@@ -200,6 +206,10 @@ class YandexSyncManager(
                         } catch (e: Throwable) {
                             Log.e(TAG, "Direct Yandex download failed for $trackTitle: ${e.message}")
                         }
+                    }
+
+                    if (!wasDownloaded) {
+                        Log.w(TAG, "Track $trackTitle was skipped: no clean authentic match in parser and direct download unavailable.")
                     }
                 }.onFailure { err ->
                     Log.e(TAG, "Unhandled error processing track $currentNumber ($trackTitle): ${err.message}", err)
@@ -221,20 +231,18 @@ class YandexSyncManager(
     }
 
     private fun findBestMatch(track: YandexTrackMeta, candidates: List<RemoteTrackCandidate>): RemoteTrackCandidate? {
-        if (candidates.isEmpty()) return null
-        val targetTitle = normalize(track.title)
-        val targetArtist = normalize(track.artist)
-
-        return candidates.firstOrNull { candidate ->
-            val cTitle = normalize(candidate.title)
-            val cArtist = normalize(candidate.artist)
-            cTitle.contains(targetTitle) || targetTitle.contains(cTitle) &&
-                (cArtist.contains(targetArtist) || targetArtist.contains(cArtist) || cArtist.isBlank())
-        } ?: candidates.firstOrNull()
+        val match = AudioJunkFilter.findBestCandidate(
+            targetTitle = track.title,
+            targetArtist = track.artist,
+            candidates = candidates,
+        )
+        if (match != null) {
+            Log.d(TAG, "Selected clean match for '${track.title}': '${match.artist} - ${match.title}'")
+        } else {
+            Log.d(TAG, "No clean authentic match found among ${candidates.size} candidate(s) for '${track.artist} - ${track.title}'")
+        }
+        return match
     }
-
-    private fun normalize(str: String): String =
-        str.replace('ё', 'е').lowercase().replace(Regex("[^a-zа-я0-9]"), "")
 
     companion object {
         private const val TAG = "YandexSyncManager"

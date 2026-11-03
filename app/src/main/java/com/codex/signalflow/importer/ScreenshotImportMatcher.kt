@@ -1,6 +1,7 @@
 package com.codex.signalflow.importer
 
 import com.codex.signalflow.data.TrackRecord
+import com.codex.signalflow.source.AudioJunkFilter
 import com.codex.signalflow.source.RemoteTrackCandidate
 
 object ScreenshotImportMatcher {
@@ -296,6 +297,7 @@ object ScreenshotImportMatcher {
         val exactTitleBonus = if (candidateTitle == trackTitle && candidateTitle.isNotBlank()) 0.10f else 0f
         val exactArtistBonus = if (candidateArtist == trackArtist && candidateArtist.isNotBlank()) 0.06f else 0f
         val confidenceBoost = candidate.confidence.coerceIn(0f, 1f) * 0.04f
+        val junkPenalty = if (AudioJunkFilter.hasUnwantedJunk(track.title, track.artist, candidateTitle, candidateArtist)) 0.45f else 0f
 
         return (
             titleScore * 0.40f +
@@ -305,7 +307,8 @@ object ScreenshotImportMatcher {
                 rawScore * 0.06f +
                 exactTitleBonus +
                 exactArtistBonus +
-                confidenceBoost
+                confidenceBoost -
+                junkPenalty
             ).coerceIn(0f, 1f)
     }
 
