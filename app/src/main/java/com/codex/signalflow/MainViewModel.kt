@@ -53,6 +53,7 @@ data class MainUiState(
     val isYandexDirectSourceEnabled: Boolean = false,
     val yandexSyncProgress: com.codex.signalflow.yandex.YandexSyncProgress = com.codex.signalflow.yandex.YandexSyncProgress(),
     val yandexDeviceCode: com.codex.signalflow.yandex.YandexDeviceCode? = null,
+    val selectedSourceFilter: String = "all",
 )
 
 internal fun buildSelectedPlaylistTracks(
@@ -90,6 +91,7 @@ class MainViewModel(
     private val sourceQuery = MutableStateFlow("")
     private val sourceResults = MutableStateFlow<List<RemoteTrackCandidate>>(emptyList())
     private val downloadingTrackKeys = MutableStateFlow<Set<String>>(emptySet())
+    private val selectedSourceFilter = MutableStateFlow("all")
     private val sourceStatus = MutableStateFlow("Источник Ligaudio активен.")
     private val ocrServerUrl = MutableStateFlow(screenshotImportRepository.getServerUrl())
     private val ocrAuthToken = MutableStateFlow(screenshotImportRepository.getAuthToken())
@@ -164,20 +166,35 @@ class MainViewModel(
         )
     }
 
+    private data class YandexCombinedState(
+        val token: String?,
+        val isDirectEnabled: Boolean,
+        val progress: com.codex.signalflow.yandex.YandexSyncProgress,
+        val deviceCode: com.codex.signalflow.yandex.YandexDeviceCode?,
+    )
+
+    private val yandexStateFlow = combine(
+        yandexSyncManager.token,
+        yandexSyncManager.isDirectSourceEnabled,
+        yandexSyncManager.progress,
+        yandexSyncManager.deviceAuthCode,
+    ) { token, directEnabled, progress, deviceCode ->
+        YandexCombinedState(token, directEnabled, progress, deviceCode)
+    }
+
     val uiState: StateFlow<MainUiState> = combine(
         baseUiState,
         downloadingTrackKeys,
-        yandexSyncManager.token,
-        yandexSyncManager.isDirectSourceEnabled,
-        combine(yandexSyncManager.progress, yandexSyncManager.deviceAuthCode) { p, code -> p to code },
-    ) { state, downloadingKeys, yToken, yDirectEnabled, progressAndCode ->
-        val (yProgress, yCode) = progressAndCode
+        selectedSourceFilter,
+        yandexStateFlow,
+    ) { state, downloadingKeys, srcFilter, yState ->
         state.copy(
             downloadingTrackKeys = downloadingKeys,
-            yandexToken = yToken,
-            isYandexDirectSourceEnabled = yDirectEnabled,
-            yandexSyncProgress = yProgress,
-            yandexDeviceCode = yCode,
+            selectedSourceFilter = srcFilter,
+            yandexToken = yState.token,
+            isYandexDirectSourceEnabled = yState.isDirectEnabled,
+            yandexSyncProgress = yState.progress,
+            yandexDeviceCode = yState.deviceCode,
             sourceDescriptors = sourceCatalog.descriptors,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), MainUiState(sourceDescriptors = sourceCatalog.descriptors))
@@ -464,25 +481,25 @@ class MainViewModel(
         }
     }
 
+    fun setSelectedSourceFilter(filter: String) {
+        selectedSourceFilter.value = filter
+        if (sourceQuery.value.isNotBlank()) {
+            searchSources(sourceQuery.value)
+        }
+    }
+
     fun searchSources(rawQuery: String) {
         viewModelScope.launch {
-            if (!sourceCatalog.hasEnabledSources()) {
-                sourceResults.value = emptyList()
-                sourceStatus.value = "Источник не подключен."
-                Log.w(TAG, "searchSources aborted: no enabled sources")
-                return@launch
-            }
             val query = rawQuery.trim()
             sourceQuery.value = rawQuery
-            Log.d(TAG, "searchSources start query=$query")
+            Log.d(TAG, "searchSources start query=$query filter=${selectedSourceFilter.value}")
             if (query.isBlank()) {
                 sourceResults.value = emptyList()
                 sourceStatus.value = "Введите запрос для поиска."
-                Log.d(TAG, "searchSources aborted: blank query")
                 return@launch
             }
             try {
-                val results = sourceCatalog.searchAll(query)
+                val results = sourceCatalog.search(query, selectedSourceFilter.value)
                 sourceResults.value = results
                 sourceStatus.value = if (results.isEmpty()) "Ничего не найдено." else "Найдено: ${results.size}."
                 Log.d(TAG, "searchSources done query=$query results=${results.size} status=${sourceStatus.value}")

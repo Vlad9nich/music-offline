@@ -1,7 +1,11 @@
 package com.codex.signalflow.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -26,6 +30,7 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
+import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.OpenInBrowser
@@ -200,12 +205,50 @@ internal fun PlaylistsScreen(
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
                                 )
+
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF0A121C), CutSmallShape)
+                                        .border(1.dp, Color(0xFF223548), CutSmallShape)
+                                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Column {
+                                        Text(
+                                            text = "КОД ПОДТВЕРЖДЕНИЯ:",
+                                            color = Color(0xFF7A8D9E),
+                                            fontFamily = FontFamily.Monospace,
+                                            fontSize = 10.sp,
+                                        )
+                                        Text(
+                                            text = uiState.yandexDeviceCode.userCode.uppercase(),
+                                            color = Color.White,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 18.sp,
+                                            letterSpacing = 2.sp,
+                                        )
+                                    }
+                                    SecondaryActionButton(
+                                        label = "КОПИРОВАТЬ",
+                                        icon = Icons.Rounded.ContentCopy,
+                                        onClick = {
+                                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                                            val clip = ClipData.newPlainText("Yandex Code", uiState.yandexDeviceCode.userCode)
+                                            clipboard.setPrimaryClip(clip)
+                                            Toast.makeText(context, "Код скопирован: ${uiState.yandexDeviceCode.userCode.uppercase()}", Toast.LENGTH_SHORT).show()
+                                        },
+                                        compact = true,
+                                    )
+                                }
+
                                 Text(
-                                    text = "Код подтверждения: ${uiState.yandexDeviceCode.userCode.uppercase()}\nПерейдите на ya.ru/device и подтвердите вход.",
+                                    text = "Перейдите на ya.ru/device и вставьте код для входа.",
                                     color = Color(0xFFD6E2F0),
                                     fontFamily = FontFamily.Monospace,
                                     fontSize = 11.sp,
-                                    lineHeight = 15.sp,
                                 )
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

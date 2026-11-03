@@ -173,6 +173,7 @@ fun SignalFlowApp(
     onStartYandexLikesSync: () -> Unit = {},
     onStartYandexDeviceAuth: () -> Unit = {},
     onCancelYandexDeviceAuth: () -> Unit = {},
+    onSetSelectedSourceFilter: (String) -> Unit = {},
 ) {
     var currentTab by rememberSaveable { mutableStateOf(AppTab.Home) }
     var isExpandedPlayerOpen by rememberSaveable { mutableStateOf(false) }
@@ -256,6 +257,7 @@ fun SignalFlowApp(
                             onSearchSources = onSearchSources,
                             onPreviewRemoteTrack = onPreviewRemoteTrack,
                             onDownloadRemoteTrack = onDownloadRemoteTrack,
+                            onSetSelectedSourceFilter = onSetSelectedSourceFilter,
                         )
 
                         AppTab.Local -> LocalLibraryScreen(

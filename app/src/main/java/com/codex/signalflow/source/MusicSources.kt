@@ -351,9 +351,16 @@ class MusicSourceCatalog(
     val descriptors: List<SourceDescriptor>
         get() = sources.map { it.descriptor }
 
-    suspend fun searchAll(query: String): List<RemoteTrackCandidate> {
+    suspend fun searchAll(query: String): List<RemoteTrackCandidate> = search(query, null)
+
+    suspend fun search(query: String, targetSourceId: String? = null): List<RemoteTrackCandidate> {
         if (query.isBlank()) return emptyList()
-        return sources.filter { it.descriptor.isEnabled }.flatMap { source ->
+        val targetSources = if (targetSourceId.isNullOrBlank() || targetSourceId == "all") {
+            sources.filter { it.descriptor.isEnabled }
+        } else {
+            sources.filter { it.descriptor.id == targetSourceId }
+        }
+        return targetSources.flatMap { source ->
             runCatching { source.search(query) }
                 .onFailure { error ->
                     runCatching {

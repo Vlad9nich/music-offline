@@ -83,14 +83,18 @@ class AudioVisualizerController {
     }
 
     private fun ensureVisualizer(audioSessionId: Int) {
+        if (audioSessionId <= 0) {
+            stopRealtime()
+            return
+        }
         if (visualizer != null && sessionId == audioSessionId) return
         stopRealtime()
         sessionId = audioSessionId
 
-        val captureRate = (Visualizer.getMaxCaptureRate() / 2).coerceAtLeast(10_000)
-        val captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(256)
-
         runCatching {
+            val captureRate = (Visualizer.getMaxCaptureRate() / 2).coerceAtLeast(10_000)
+            val captureSize = Visualizer.getCaptureSizeRange()[1].coerceAtMost(256)
+
             Visualizer(audioSessionId).apply {
                 this.captureSize = captureSize
                 setDataCaptureListener(
@@ -122,7 +126,7 @@ class AudioVisualizerController {
             visualizer = it
         }.onFailure {
             stopRealtime()
-            ensureFallback(progressFraction = 0f, isPlaying = true)
+            ensureFallback(progressFraction = 0f, isPlaying = false)
         }
     }
 
@@ -130,15 +134,24 @@ class AudioVisualizerController {
         progressFraction: Float,
         isPlaying: Boolean,
     ) {
+        if (!isPlaying) {
+            stopFallback()
+            publishBars(
+                frame = fallbackFrame(progressFraction = progressFraction, isPlaying = false),
+                usingFallback = true,
+                active = false,
+            )
+            return
+        }
         if (fallbackJob != null) return
         fallbackJob = scope.launch {
             while (true) {
                 publishBars(
-                    frame = fallbackFrame(progressFraction = progressFraction, isPlaying = isPlaying),
+                    frame = fallbackFrame(progressFraction = progressFraction, isPlaying = true),
                     usingFallback = true,
                     active = true,
                 )
-                delay(if (isPlaying) 48L else 180L)
+                delay(48L)
             }
         }
     }

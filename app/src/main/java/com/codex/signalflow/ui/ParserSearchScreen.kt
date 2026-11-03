@@ -2,6 +2,9 @@ package com.codex.signalflow.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Modifier
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -26,6 +29,7 @@ internal fun ParserSearchScreen(
     onSearchSources: (String) -> Unit,
     onPreviewRemoteTrack: (RemoteTrackCandidate) -> Unit,
     onDownloadRemoteTrack: (RemoteTrackCandidate) -> Unit,
+    onSetSelectedSourceFilter: (String) -> Unit = {},
 ) {
     var queryDraft by rememberSaveable(uiState.sourceQuery) { mutableStateOf(uiState.sourceQuery) }
     var selectedArtist by rememberSaveable(uiState.sourceQuery, uiState.sourceResults) { mutableStateOf<String?>(null) }
@@ -61,6 +65,28 @@ internal fun ParserSearchScreen(
                 buttonIcon = Icons.Rounded.Search,
                 onSearch = { onSearchSources(queryDraft) },
             )
+        }
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                FilterChip(
+                    label = "ВСЕ ИСТОЧНИКИ",
+                    selected = uiState.selectedSourceFilter == "all",
+                    onClick = { onSetSelectedSourceFilter("all") },
+                )
+                FilterChip(
+                    label = "LIGAUDIO",
+                    selected = uiState.selectedSourceFilter == "ligaudio",
+                    onClick = { onSetSelectedSourceFilter("ligaudio") },
+                )
+                FilterChip(
+                    label = "ЯНДЕКС МУЗЫКА",
+                    selected = uiState.selectedSourceFilter == "yandex_direct",
+                    onClick = { onSetSelectedSourceFilter("yandex_direct") },
+                )
+            }
         }
         item {
             SearchStatusStrip(

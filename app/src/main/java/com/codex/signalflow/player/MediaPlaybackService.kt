@@ -106,34 +106,40 @@ class MediaPlaybackService : MediaSessionService() {
 
     private fun showNotification(state: PlayerUiState) {
         val session = mediaSession ?: return
-        val notification = buildNotification(state, session)
-        if (state.isPlaying) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                notification,
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                } else {
-                    0
-                },
-            )
-            foregroundActive = true
-        } else {
-            if (foregroundActive) {
-                stopForeground(STOP_FOREGROUND_DETACH)
-                foregroundActive = false
+        runCatching {
+            val notification = buildNotification(state, session)
+            if (state.isPlaying) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+                    } else {
+                        0
+                    },
+                )
+                foregroundActive = true
+            } else {
+                if (foregroundActive) {
+                    stopForeground(STOP_FOREGROUND_DETACH)
+                    foregroundActive = false
+                }
+                NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
             }
-            NotificationManagerCompat.from(this).notify(NOTIFICATION_ID, notification)
+        }.onFailure { err ->
+            android.util.Log.e("MediaPlaybackService", "Error showing notification", err)
         }
     }
 
     private fun hideNotification() {
-        if (foregroundActive) {
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            foregroundActive = false
+        runCatching {
+            if (foregroundActive) {
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                foregroundActive = false
+            }
+            NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
         }
-        NotificationManagerCompat.from(this).cancel(NOTIFICATION_ID)
         playbackManager.setNotificationVisible(false)
     }
 

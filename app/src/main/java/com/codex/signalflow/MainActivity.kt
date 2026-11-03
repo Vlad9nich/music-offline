@@ -25,6 +25,13 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        // Minimize to background instead of destroying process on root back press
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                moveTaskToBack(true)
+            }
+        })
+
         setContent {
             SignalFlowTheme {
                 val uiState by viewModel.uiState.collectAsState()
@@ -119,6 +126,7 @@ class MainActivity : ComponentActivity() {
                     onStartYandexLikesSync = viewModel::startYandexLikesSync,
                     onStartYandexDeviceAuth = viewModel::startYandexDeviceAuth,
                     onCancelYandexDeviceAuth = viewModel::cancelYandexDeviceAuth,
+                    onSetSelectedSourceFilter = viewModel::setSelectedSourceFilter,
                 )
             }
         }
