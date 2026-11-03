@@ -463,7 +463,11 @@ internal fun PlaylistsScreen(
                     )
                 }
             } else {
-                items(uiState.playlists, key = { it.id }) { playlist ->
+                items(
+                    items = uiState.playlists,
+                    key = { it.id },
+                    contentType = { "playlist" },
+                ) { playlist ->
                     val isSelected = playlist.id == uiState.selectedPlaylistId
                     PlaylistCard(
                         playlist = playlist,

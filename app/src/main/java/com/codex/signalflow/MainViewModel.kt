@@ -7,6 +7,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.codex.signalflow.data.LibraryRepository
 import com.codex.signalflow.data.PlaylistRecord
+import androidx.compose.runtime.Immutable
 import com.codex.signalflow.data.TrackRecord
 import com.codex.signalflow.importer.MatchedTrackCandidate
 import com.codex.signalflow.importer.OcrJobResponse
@@ -18,7 +19,6 @@ import com.codex.signalflow.importer.ScreenshotImportSession
 import com.codex.signalflow.importer.toRecognizedCandidate
 import com.codex.signalflow.player.PlaybackController
 import com.codex.signalflow.player.PlayerUiState
-import com.codex.signalflow.player.VisualizerUiState
 import com.codex.signalflow.source.MusicSourceCatalog
 import com.codex.signalflow.source.RemoteTrackCandidate
 import com.codex.signalflow.source.SourceDescriptor
@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
+@Immutable
 data class MainUiState(
     val tracks: List<TrackRecord> = emptyList(),
     val filteredTracks: List<TrackRecord> = emptyList(),
@@ -100,7 +101,6 @@ class MainViewModel(
 
     val snackbarMessage: StateFlow<String?> = snackbar
     val playerState: StateFlow<PlayerUiState> = playbackController.playerState
-    val visualizerState: StateFlow<VisualizerUiState> = playbackController.visualizerState
 
     private val librarySelection = combine(repository.snapshot, selectedPlaylistId) { snapshot, playlistId ->
         val activePlaylist = snapshot.playlists.firstOrNull { it.id == playlistId }
@@ -449,8 +449,6 @@ class MainViewModel(
     fun playPrevious() = playbackController.playPrevious()
     fun toggleShuffle() = playbackController.toggleShuffle()
     fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
-    fun setVisualizerActive(active: Boolean) = playbackController.setVisualizerActive(active)
-    fun setVisualizerPermissionGranted(granted: Boolean) = playbackController.setVisualizerPermissionGranted(granted)
     fun deleteLocalTrack(trackId: String) {
         viewModelScope.launch {
             val deleted = repository.deleteTrack(trackId)

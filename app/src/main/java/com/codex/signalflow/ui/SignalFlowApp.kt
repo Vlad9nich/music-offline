@@ -101,7 +101,6 @@ import com.codex.signalflow.importer.ScreenshotImportItemStatus
 import com.codex.signalflow.importer.ScreenshotImportPhase
 import com.codex.signalflow.importer.ScreenshotImportSession
 import com.codex.signalflow.player.PlayerUiState
-import com.codex.signalflow.player.VisualizerUiState
 import com.codex.signalflow.source.RemoteTrackCandidate
 import kotlin.math.roundToInt
 
@@ -137,8 +136,6 @@ private enum class AppTab(
 fun SignalFlowApp(
     uiState: MainUiState,
     playerState: PlayerUiState,
-    visualizerState: VisualizerUiState,
-    visualizerPermissionGranted: Boolean,
     snackbarMessage: String?,
     onImportTracks: () -> Unit,
     onImportPlaylistScreenshots: () -> Unit,
@@ -159,8 +156,6 @@ fun SignalFlowApp(
     onPlayPrevious: () -> Unit,
     onToggleShuffle: () -> Unit,
     onSeekTo: (Long) -> Unit,
-    onExpandedPlayerVisibilityChanged: (Boolean) -> Unit,
-    onRequestVisualizerPermission: () -> Unit,
     onSearchSources: (String) -> Unit,
     onPlayPlaylistTrack: (String) -> Unit,
     onPreviewRemoteTrack: (RemoteTrackCandidate) -> Unit,
@@ -215,8 +210,6 @@ fun SignalFlowApp(
                         onSeekTo = onSeekTo,
                         onExpand = {
                             isExpandedPlayerOpen = true
-                            onExpandedPlayerVisibilityChanged(true)
-                            if (!visualizerPermissionGranted) onRequestVisualizerPermission()
                         },
                     )
                     BottomNavigation(currentTab = currentTab, onSelect = { currentTab = it })
@@ -307,10 +300,8 @@ fun SignalFlowApp(
         ) {
             ExpandedPlayerOverlay(
                 state = playerState,
-                visualizerState = visualizerState,
                 onDismiss = {
                     isExpandedPlayerOpen = false
-                    onExpandedPlayerVisibilityChanged(false)
                 },
                 onTogglePlayPause = onTogglePlayPause,
                 onPlayPrevious = onPlayPrevious,

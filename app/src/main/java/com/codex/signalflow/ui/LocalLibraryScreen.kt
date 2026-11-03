@@ -61,7 +61,11 @@ internal fun LocalLibraryScreen(
                 )
             }
         } else {
-            items(uiState.filteredTracks, key = { it.id }) { track ->
+            items(
+                items = uiState.filteredTracks,
+                key = { it.id },
+                contentType = { "track" },
+            ) { track ->
                 TrackRow(
                     track = track,
                     primaryLabel = "СЛУШАТЬ",

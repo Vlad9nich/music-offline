@@ -1,7 +1,9 @@
 package com.codex.signalflow.data
 
+import androidx.compose.runtime.Immutable
 import kotlinx.serialization.Serializable
 
+@Immutable
 @Serializable
 data class TrackRecord(
     val id: String,
@@ -14,6 +16,7 @@ data class TrackRecord(
     val coverUri: String? = null,
 )
 
+@Immutable
 @Serializable
 data class PlaylistRecord(
     val id: String,
@@ -22,6 +25,7 @@ data class PlaylistRecord(
     val createdAtEpochMs: Long,
 )
 
+@Immutable
 @Serializable
 data class LibrarySnapshot(
     val tracks: List<TrackRecord> = emptyList(),

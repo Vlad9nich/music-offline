@@ -63,7 +63,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.codex.signalflow.player.PlayerUiState
-import com.codex.signalflow.player.VisualizerUiState
 
 @Composable
 internal fun PlayerDock(
@@ -161,7 +160,6 @@ internal fun PlayerDock(
 @Composable
 internal fun ExpandedPlayerOverlay(
     state: PlayerUiState,
-    visualizerState: VisualizerUiState,
     onDismiss: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onPlayPrevious: () -> Unit,

@@ -143,6 +143,17 @@ private fun createGridShaderBrush(): ShaderBrush {
 @Composable
 fun Modifier.dedsecNoiseBackground(): Modifier {
     val gridBrush = remember { createGridShaderBrush() }
+    val beamGradient = remember {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color(0xFFD0DCF0),
+                Color(0xFFFFFFFF),
+                Color(0xFFD0DCF0),
+                Color.Transparent,
+            ),
+        )
+    }
     val transition = rememberInfiniteTransition(label = "dedsec_noise")
     val sweepProgress by transition.animateFloat(
         initialValue = 0f,
@@ -178,34 +189,28 @@ fun Modifier.dedsecNoiseBackground(): Modifier {
             // 1. Cyber mesh grid: 1 hardware textured draw call (was 60+ drawLine calls)
             drawRect(brush = gridBrush)
 
-            // 2. Sweeping CRT radar beam
+            // 2. Sweeping CRT radar beam (Zero heap allocation, cached gradient)
             val sweepY = sweepProgress * size.height
+            val halfBeam = 18.dp.toPx()
             drawRect(
-                brush = Brush.verticalGradient(
-                    colors = listOf(
-                        Color.Transparent,
-                        Color(0xFFD0DCF0).copy(alpha = flickerAlpha * 0.7f),
-                        Color(0xFFFFFFFF).copy(alpha = flickerAlpha),
-                        Color(0xFFD0DCF0).copy(alpha = flickerAlpha * 0.7f),
-                        Color.Transparent,
-                    ),
-                    startY = sweepY - 18.dp.toPx(),
-                    endY = sweepY + 18.dp.toPx(),
-                ),
-                topLeft = Offset(0f, sweepY - 18.dp.toPx()),
-                size = Size(size.width, 36.dp.toPx()),
+                brush = beamGradient,
+                alpha = flickerAlpha,
+                topLeft = Offset(0f, sweepY - halfBeam),
+                size = Size(size.width, halfBeam * 2),
             )
 
-            // 3. Dynamic silver glitch bands (2 hardware draw calls)
+            // 3. Dynamic silver glitch bands (Zero allocation direct alpha)
             val band1 = ((glitchPhase * 19.3f) % size.height)
             val band2 = ((glitchPhase * 43.7f) % size.height)
             drawRect(
-                color = Color(0xFFD8E4F2).copy(alpha = flickerAlpha * 0.9f),
+                color = Color(0xFFD8E4F2),
+                alpha = flickerAlpha * 0.9f,
                 topLeft = Offset(0f, band1),
                 size = Size(size.width, 3.dp.toPx()),
             )
             drawRect(
-                color = Color(0xFFB5C8DE).copy(alpha = flickerAlpha * 0.7f),
+                color = Color(0xFFB5C8DE),
+                alpha = flickerAlpha * 0.7f,
                 topLeft = Offset(0f, band2),
                 size = Size(size.width, 2.dp.toPx()),
             )

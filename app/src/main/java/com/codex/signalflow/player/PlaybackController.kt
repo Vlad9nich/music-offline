@@ -10,7 +10,6 @@ class PlaybackController(
     private val playbackManager = PlaybackRuntime.getManager(appContext)
 
     val playerState = playbackManager.playerState
-    val visualizerState = playbackManager.visualizerState
 
     fun playQueue(label: String, tracks: List<TrackRecord>, startTrackId: String, shuffle: Boolean = false) {
         playbackManager.playQueue(label, tracks, startTrackId, shuffle)
@@ -48,13 +47,5 @@ class PlaybackController(
 
     fun removeTrack(trackId: String) {
         playbackManager.removeTrack(trackId)
-    }
-
-    fun setVisualizerActive(active: Boolean) {
-        playbackManager.setVisualizerActive(active)
-    }
-
-    fun setVisualizerPermissionGranted(granted: Boolean) {
-        playbackManager.setVisualizerPermissionGranted(granted)
     }
 }

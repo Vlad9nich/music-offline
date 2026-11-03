@@ -1,4 +1,4 @@
-﻿package com.codex.signalflow.player
+package com.codex.signalflow.player
 
 import android.content.Context
 import androidx.media3.common.MediaItem
@@ -12,11 +12,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlin.random.Random
 
+@Immutable
 data class PlayerUiState(
     val queueLabel: String = "Медиатека",
     val currentTrack: TrackRecord? = null,
@@ -41,19 +43,15 @@ class PlaybackManager(
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _playerState = MutableStateFlow(PlayerUiState())
     val playerState: StateFlow<PlayerUiState> = _playerState.asStateFlow()
-    private val audioVisualizer = AudioVisualizerController()
     private var baseQueue: List<TrackRecord> = emptyList()
     private var playbackQueue: List<TrackRecord> = emptyList()
     private var currentQueueLabel: String = "Медиатека"
     private var shuffleEnabled: Boolean = false
-    private var visualizerActive: Boolean = false
-    private var visualizerPermissionGranted: Boolean = false
     private var notificationVisible: Boolean = false
     /** Last emitted identity (track/play/shuffle/queue) for cheap equality checks. */
     private var lastIdentityKey: String = ""
     private var lastEmittedPositionMs: Long = -1L
 
-    val visualizerState: StateFlow<VisualizerUiState> = audioVisualizer.state
     val player: ExoPlayer get() = exoPlayer
 
     init {
@@ -76,15 +74,8 @@ class PlaybackManager(
         })
         scope.launch {
             while (true) {
-                // Timeline ticks: slower when visualizer is off to avoid root recomposition storms.
                 updateState(force = false)
-                delay(
-                    when {
-                        visualizerActive && exoPlayer.isPlaying -> 280L
-                        exoPlayer.isPlaying -> 500L
-                        else -> 1_200L
-                    },
-                )
+                delay(if (exoPlayer.isPlaying) 500L else 1_200L)
             }
         }
     }
@@ -174,19 +165,8 @@ class PlaybackManager(
         updateState()
     }
 
-    fun setVisualizerActive(active: Boolean) {
-        visualizerActive = active
-        updateState()
-    }
-
-    fun setVisualizerPermissionGranted(granted: Boolean) {
-        visualizerPermissionGranted = granted
-        updateState()
-    }
-
     fun release() {
         scope.cancel()
-        audioVisualizer.release()
         exoPlayer.release()
     }
 
@@ -219,7 +199,7 @@ class PlaybackManager(
         val identityChanged = identityKey != lastIdentityKey
         val positionDelta = kotlin.math.abs(position - lastEmittedPositionMs)
         // Skip no-op timeline ticks unless identity changed or position moved enough.
-        if (!force && !identityChanged && positionDelta < 400L && !visualizerActive) {
+        if (!force && !identityChanged && positionDelta < 400L) {
             return
         }
 
@@ -240,13 +220,6 @@ class PlaybackManager(
             canSeek = duration > 0L,
             audioSessionId = exoPlayer.audioSessionId,
             isNotificationVisible = notificationVisible,
-        )
-        audioVisualizer.update(
-            audioSessionId = exoPlayer.audioSessionId,
-            isPlaying = isPlaying,
-            isActive = visualizerActive,
-            permissionGranted = visualizerPermissionGranted,
-            progressFraction = progressFraction,
         )
     }
 

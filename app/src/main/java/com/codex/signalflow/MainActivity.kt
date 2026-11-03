@@ -36,22 +36,12 @@ class MainActivity : ComponentActivity() {
             SignalFlowTheme {
                 val uiState by viewModel.uiState.collectAsState()
                 val playerState by viewModel.playerState.collectAsState()
-                val visualizerState by viewModel.visualizerState.collectAsState()
                 val snackbarMessage by viewModel.snackbarMessage.collectAsState()
-                val hasVisualizerPermission = ContextCompat.checkSelfPermission(
-                    this,
-                    Manifest.permission.RECORD_AUDIO,
-                ) == PackageManager.PERMISSION_GRANTED
                 val hasNotificationPermission = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
                     ContextCompat.checkSelfPermission(
                         this,
                         Manifest.permission.POST_NOTIFICATIONS,
                     ) == PackageManager.PERMISSION_GRANTED
-                val recordAudioPermission = rememberLauncherForActivityResult(
-                    ActivityResultContracts.RequestPermission(),
-                ) { granted ->
-                    viewModel.setVisualizerPermissionGranted(granted)
-                }
                 val postNotificationsPermission = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestPermission(),
                 ) { }
@@ -72,10 +62,6 @@ class MainActivity : ComponentActivity() {
                     viewModel.importPlaylistScreenshots(uris)
                 }
 
-                LaunchedEffect(hasVisualizerPermission) {
-                    viewModel.setVisualizerPermissionGranted(hasVisualizerPermission)
-                }
-
                 LaunchedEffect(playerState.isPlaying, hasNotificationPermission) {
                     if (playerState.isPlaying &&
                         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -88,8 +74,6 @@ class MainActivity : ComponentActivity() {
                 SignalFlowApp(
                     uiState = uiState,
                     playerState = playerState,
-                    visualizerState = visualizerState,
-                    visualizerPermissionGranted = hasVisualizerPermission,
                     snackbarMessage = snackbarMessage,
                     onImportTracks = { picker.launch(arrayOf("audio/*")) },
                     onImportPlaylistScreenshots = { screenshotPicker.launch(arrayOf("image/*")) },
@@ -110,10 +94,6 @@ class MainActivity : ComponentActivity() {
                     onPlayPrevious = viewModel::playPrevious,
                     onToggleShuffle = viewModel::toggleShuffle,
                     onSeekTo = viewModel::seekTo,
-                    onExpandedPlayerVisibilityChanged = viewModel::setVisualizerActive,
-                    onRequestVisualizerPermission = {
-                        recordAudioPermission.launch(Manifest.permission.RECORD_AUDIO)
-                    },
                     onSearchSources = { query -> viewModel.searchSources(query) },
                     onPlayPlaylistTrack = viewModel::playTrackFromSelectedPlaylist,
                     onPreviewRemoteTrack = viewModel::previewRemoteTrack,
