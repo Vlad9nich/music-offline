@@ -183,9 +183,17 @@ fun SignalFlowApp(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .dedsecNoiseBackground(),
+            .background(Color(0xFF040609)),
     ) {
+        // 1. Isolated Background Layer (Runs in its own hardware RenderNode)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer()
+                .dedsecNoiseBackground(),
+        )
 
+        // 2. Main Application Scaffold
         Scaffold(
             contentWindowInsets = WindowInsets.safeDrawing,
             containerColor = Color.Transparent,
@@ -272,6 +280,14 @@ fun SignalFlowApp(
                 }
             }
         }
+
+        // 3. Ultra-fast hardware CRT scanline and raster overlay (1 draw call, non-blocking)
+        CrtScanlineOverlay(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(),
+        )
+
         AnimatedVisibility(
             visible = isExpandedPlayerOpen,
             enter = slideInVertically(animationSpec = tween(320)) { it / 3 } + fadeIn(tween(240)),

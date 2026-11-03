@@ -24,16 +24,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-// Exact ASCII art transcribed from user's terminal screenshot (skull.txt)
-// Uses § placeholder replaced with $ at runtime to prevent Kotlin string template errors.
-private val SKULL_FRAME_IDLE = """
+// Cranium (top part of the skull, completely static)
+private val SKULL_CRANIUM = """
          ,--.
        ,g§§§§Sk.
      ,d§§§§§§§§§§k.
@@ -45,64 +43,17 @@ private val SKULL_FRAME_IDLE = """
  '       ,        ?kiSSI?
        :.      §k  _  '?Si7
      .,_,-     i§S%7- :i?'
+""".trimIndent().replace('§', '$')
+
+// Jaw (lower mandible, articulates up and down when laughing)
+private val SKULL_JAW = """
     ?%uS%uo.d§§?' -?°'
     S§§§§§§§§§i
     -?§§S?
 """.trimIndent().replace('§', '$')
 
-private val SKULL_FRAME_LAUGH_1 = """
-         ,--.
-       ,g§§§§Sk.
-     ,d§§§§§§§§§§k.
-    ,?^?§7°'  '?§SS§§L.
-   ,?   §SL._  ,d§iiS§§§SL
-  j§Su%S§S§§§§§?:iiS§§§Sb
- :?°?^4§S§§"^°?§SL:iiS§SI:
- :'   '/'?§'.   '?LiS§§SI:
- '  [ HA! HA! ]   ?kiSSI?
-       :.   \___/   '?Si7
-     .,_,-  |   | :i?'
-    ?%uS%uo.d§§?' -?°'
-      S§§§§§§§§§i
-      -?§§S?
-""".trimIndent().replace('§', '$')
-
-private val SKULL_FRAME_LAUGH_2 = """
-         ,--.
-       ,g§§§§Sk.
-     ,d§§§§§§§§§§k.
-    ,?^?§7°'  '?§SS§§L.
-   ,?   §SL._  ,d§iiS§§§SL
-  j§Su%S§S§§§§§?:iiS§§§Sb
- :?°?^4§S§§"^°?§SL:iiS§SI:
- :'   '/'?§'.   '?LiS§§SI:
- ' [ DEDSEC:LAUGH ] ?kiSSI?
-       :.   \_____/ '?Si7
-     .,_,-  |     | :i?'
-    ?%uS%uo.d§§?' -?°'
-        S§§§§§§§§§i
-        -?§§S?
-""".trimIndent().replace('§', '$')
-
-private val SKULL_FRAME_GLITCH = """
-        _ ,--. _
-       ,g§§§§#k.
-     ,,d§§§§§##§§k.
-    ,,?^?§7°'  '?§SS§§L.
-   ,??   §SL._  ,d§iiS§§§SL
-  jj§Su%S§S§§§§§?:iiS§§§Sb
- :??°?^4§S§§"^°?§SL:iiS§SI:
- :'    '/'?§'.   '?LiS§§SI:
- ''       ,,       ?kiSSI?
-       ::.     §k  _  '?Si7
-     ..,_,-    i§S%7- :i?'
-    ??%uS%uo.d§§?' -?°'
-    SS§§§§§§§§§i
-    --?§§S?
-""".trimIndent().replace('§', '$')
-
 /**
- * Animated Laughing ASCII Skull from Watch Dogs 2 / DedSec terminal.
+ * Natural laughing ASCII Skull: mouth opens and closes with varying rhythmic frequency.
  */
 @Composable
 fun AsciiSkullCard(
@@ -110,49 +61,56 @@ fun AsciiSkullCard(
     title: String = "DEDSEC: SKULL.TXT",
 ) {
     val cursor = rememberBlinkingCursor()
-    val transition = rememberInfiniteTransition(label = "ascii_laugh")
-    
-    // Animate laugh cycle (0 to 100)
-    val phase by transition.animateFloat(
+    val transition = rememberInfiniteTransition(label = "ascii_laugh_loop")
+
+    // Master 3600ms loop for organic varying laughter cadence
+    val timeMs by transition.animateFloat(
         initialValue = 0f,
-        targetValue = 100f,
+        targetValue = 3600f,
         animationSpec = infiniteRepeatable(
-            animation = tween(2200, easing = LinearEasing),
+            animation = tween(durationMillis = 3600, easing = LinearEasing),
             repeatMode = RepeatMode.Restart,
         ),
-        label = "laugh_phase",
+        label = "laugh_time_ms",
     )
 
-    // Jitter for glitch frame
-    val glitchJitter by transition.animateFloat(
-        initialValue = -1f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(80, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse,
-        ),
-        label = "glitch_jitter",
-    )
-
-    val currentFrame = when {
-        phase < 35f -> SKULL_FRAME_IDLE
-        phase < 45f -> SKULL_FRAME_LAUGH_1
-        phase < 55f -> SKULL_FRAME_LAUGH_2
-        phase < 65f -> SKULL_FRAME_LAUGH_1
-        phase < 75f -> SKULL_FRAME_LAUGH_2
-        phase < 82f -> SKULL_FRAME_GLITCH
-        else -> SKULL_FRAME_IDLE
+    // Gap specifies how many empty lines are between cranium and jaw:
+    // 0 = mouth closed, 1 = mouth half open, 2 = mouth wide open.
+    val (gap, isLaughing) = when (timeMs) {
+        in 0f..600f -> Pair(0, false)       // Pause (closed)
+        in 600f..750f -> Pair(1, true)      // Chuckle 1 (open)
+        in 750f..900f -> Pair(0, true)      // (close)
+        in 900f..1050f -> Pair(1, true)     // Chuckle 2 (open)
+        in 1050f..1200f -> Pair(0, true)    // (close)
+        in 1200f..1350f -> Pair(1, true)    // Chuckle 3 (open)
+        in 1350f..1600f -> Pair(0, false)   // Short breath (closed)
+        in 1600f..1900f -> Pair(2, true)    // Hearty laugh 1 (wide open!)
+        in 1900f..2050f -> Pair(1, true)    // (mid close)
+        in 2050f..2400f -> Pair(2, true)    // Hearty laugh 2 (wide open!)
+        in 2400f..2600f -> Pair(0, true)    // (close)
+        in 2600f..2800f -> Pair(1, true)    // Chuckle 4 (open)
+        else -> Pair(0, false)              // Resting pause (closed)
     }
 
-    val isLaughing = phase in 35f..75f
-    val isGlitching = phase in 80f..84f
+    // Keep total line count constant (16 lines) so the card never jumps in height
+    val skullText = buildString {
+        append(SKULL_CRANIUM)
+        append("\n")
+        repeat(gap) {
+            append("\n")
+        }
+        append(SKULL_JAW)
+        repeat(2 - gap) {
+            append("\n")
+        }
+    }
 
     Box(
         modifier = modifier
             .fillMaxWidth()
             .clip(CutPanelShape)
             .background(Color(0xFF06090E))
-            .border(1.dp, if (isLaughing) Color(0xFFFFFFFF) else Color(0xFF222B38), CutPanelShape)
+            .border(1.dp, if (isLaughing) Color.White else Color(0xFF222B38), CutPanelShape)
             .techCornerMarks(markColor = if (isLaughing) Color.White else Color(0x66FFFFFF))
             .scanlineOverlay(lineColor = Color(0x18FFFFFF), stepPx = 4f),
     ) {
@@ -183,7 +141,7 @@ fun AsciiSkullCard(
                     )
                 }
                 Text(
-                    text = if (isLaughing) "СМЕХ" else "МОНИТОРИНГ",
+                    text = if (isLaughing) "СМЕХ" else "ОЖИДАНИЕ",
                     color = if (isLaughing) Color.White else Color(0xFF7A889B),
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
@@ -193,26 +151,20 @@ fun AsciiSkullCard(
 
             Spacer(Modifier.height(10.dp))
 
-            // ASCII Skull Art Display
+            // ASCII Skull Art Display (smoothly opens and closes mouth)
             Text(
-                text = currentFrame,
-                color = if (isGlitching) Color(0xFFE2EAF4) else Color(0xFFD0DCED),
+                text = skullText,
+                color = Color(0xFFD4E0F0),
                 fontFamily = FontFamily.Monospace,
                 fontSize = 10.sp,
                 lineHeight = 11.sp,
                 textAlign = TextAlign.Center,
                 fontWeight = FontWeight.Bold,
-                modifier = Modifier
-                    .graphicsLayer {
-                        translationX = if (isGlitching) glitchJitter * 4f else 0f
-                        scaleX = if (isLaughing) 1.03f else 1f
-                        scaleY = if (isLaughing) 1.03f else 1f
-                    },
             )
 
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
 
-            // Emacs / Terminal Bottom Status Bar from reference screenshot: -UUU:**--F1   skull.txt
+            // Emacs / Terminal Bottom Status Bar from screenshot: -UUU:**--F1   skull.txt
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
