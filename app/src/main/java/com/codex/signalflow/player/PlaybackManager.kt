@@ -277,40 +277,74 @@ internal fun buildPlaybackQueue(
     return listOfNotNull(pinnedTrack) + remainder
 }
 
+private fun normalizePrimaryArtist(artist: String): String {
+    val clean = artist.trim().lowercase()
+    if (clean.isBlank()) return "unknown"
+    return clean
+        .split(",", ";", "/", "\\", " feat.", " ft.", " feat ", " ft ", " Feat.", " Ft.", " with ", " & ", " vs ", " x ", " X ")
+        .firstOrNull()?.trim() ?: clean
+}
+
 private fun buildArtistAwareShuffle(
     tracks: List<TrackRecord>,
     previousArtist: String?,
     random: Random,
 ): List<TrackRecord> {
     if (tracks.isEmpty()) return emptyList()
+    if (tracks.size <= 2) return tracks.shuffled(random)
 
-    val buckets = tracks
-        .groupBy { it.artist }
-        .mapValues { (_, items) -> items.shuffled(random).toMutableList() }
-        .toMutableMap()
+    val normalizedPrevArtist = previousArtist?.let { normalizePrimaryArtist(it) }
 
-    val result = mutableListOf<TrackRecord>()
-    var lastArtist = previousArtist
+    // 1. Group tracks by normalized primary artist and shuffle within artist
+    val artistGroups = tracks
+        .groupBy { normalizePrimaryArtist(it.artist) }
+        .mapValues { (_, group) -> group.shuffled(random) }
 
-    while (buckets.isNotEmpty()) {
-        val preferredArtists = buckets
-            .filterKeys { artist -> artist != lastArtist }
-            .ifEmpty { buckets }
+    // 2. Assign spaced relative target position (0.0 .. 1.0) to every track of each artist (Spotify balanced shuffle)
+    data class ScheduledTrack(val track: TrackRecord, val normalizedArtist: String, val targetPosition: Double)
 
-        val maxBucketSize = preferredArtists.maxOf { it.value.size }
-        val candidateArtists = preferredArtists
-            .filterValues { it.size == maxBucketSize }
-            .keys
-            .toList()
-        val nextArtist = candidateArtists.random(random)
+    val scheduled = mutableListOf<ScheduledTrack>()
+    for ((artist, group) in artistGroups) {
+        val count = group.size
+        val interval = 1.0 / count
+        val phaseOffset = random.nextDouble() * interval
+        val extraSpacing = if (artist == normalizedPrevArtist) interval * 0.5 else 0.0
 
-        val bucket = requireNotNull(buckets[nextArtist])
-        val nextTrack = bucket.removeAt(0)
-        result += nextTrack
-        lastArtist = nextTrack.artist
-        if (bucket.isEmpty()) {
-            buckets.remove(nextArtist)
+        for (i in 0 until count) {
+            val basePos = (i * interval + phaseOffset + extraSpacing) % 1.0
+            val jitter = (random.nextDouble() - 0.5) * (interval * 0.15)
+            val finalPos = (basePos + jitter).coerceIn(0.0, 1.0)
+            scheduled.add(ScheduledTrack(group[i], artist, finalPos))
         }
+    }
+
+    // 3. Sort by target position
+    scheduled.sortBy { it.targetPosition }
+
+    // 4. Secondary pass: Strict anti-clustering swap
+    // Guarantee that no two tracks by the same primary artist appear consecutively
+    val result = scheduled.map { it.track }.toMutableList()
+    var i = 0
+    while (i < result.size - 1) {
+        val currentArtist = normalizePrimaryArtist(result[i].artist)
+        val nextArtist = normalizePrimaryArtist(result[i + 1].artist)
+
+        if (currentArtist == nextArtist) {
+            var swapIndex = -1
+            for (j in (i + 2) until result.size) {
+                val candidateArtist = normalizePrimaryArtist(result[j].artist)
+                if (candidateArtist != currentArtist) {
+                    swapIndex = j
+                    break
+                }
+            }
+            if (swapIndex != -1) {
+                val temp = result[i + 1]
+                result[i + 1] = result[swapIndex]
+                result[swapIndex] = temp
+            }
+        }
+        i++
     }
 
     return result

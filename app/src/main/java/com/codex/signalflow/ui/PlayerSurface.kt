@@ -6,8 +6,9 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.changedToUp
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -342,39 +343,24 @@ internal fun PlaybackTimeline(
                 .height(if (compact) 18.dp else 34.dp)
                 .pointerInput(state.canSeek, duration) {
                     if (!state.canSeek || duration <= 0L) return@pointerInput
-                    detectTapGestures(
-                        onPress = { offset ->
-                            isDragging = true
-                            dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
-                            val released = tryAwaitRelease()
-                            if (released) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        isDragging = true
+                        dragFraction = (down.position.x / size.width.toFloat()).coerceIn(0f, 1f)
+                        down.consume()
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (change.changedToUp()) {
+                                change.consume()
                                 onSeekTo((duration * dragFraction).toLong())
+                                break
                             }
-                            isDragging = false
-                        }
-                    )
-                }
-                .pointerInput(state.canSeek, duration) {
-                    if (!state.canSeek || duration <= 0L) return@pointerInput
-                    detectHorizontalDragGestures(
-                        onDragStart = { offset ->
-                            isDragging = true
-                            dragFraction = (offset.x / size.width).coerceIn(0f, 1f)
-                        },
-                        onDragEnd = {
-                            if (duration > 0L) {
-                                onSeekTo((duration * dragFraction).toLong())
-                            }
-                            isDragging = false
-                        },
-                        onDragCancel = {
-                            isDragging = false
-                        },
-                        onHorizontalDrag = { change, _ ->
+                            dragFraction = (change.position.x / size.width.toFloat()).coerceIn(0f, 1f)
                             change.consume()
-                            dragFraction = (change.position.x / size.width).coerceIn(0f, 1f)
                         }
-                    )
+                        isDragging = false
+                    }
                 },
             contentAlignment = Alignment.CenterStart,
         ) {

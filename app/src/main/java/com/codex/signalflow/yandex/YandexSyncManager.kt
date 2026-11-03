@@ -7,6 +7,7 @@ import com.codex.signalflow.source.DownloadBlueprint
 import com.codex.signalflow.source.MusicSourceCatalog
 import com.codex.signalflow.source.RemoteTrackCandidate
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -125,7 +126,7 @@ class YandexSyncManager(
                 message = "Найдено $total треков. Запуск конвейера...",
             )
 
-            // 4. Pipeline Loop over tracks
+            // 4. Pipeline Loop over tracks with graceful error recovery
             for ((index, track) in likedTracks.withIndex()) {
                 val currentNumber = index + 1
                 val trackTitle = "${track.artist} - ${track.title}"
@@ -138,63 +139,70 @@ class YandexSyncManager(
                     message = "[$currentNumber / $total] Поиск в основном парсере: $trackTitle",
                 )
 
+                // Polite delay to prevent HTTP 429 (Too Many Requests) from scraping sources
+                delay(350)
+
                 var wasDownloaded = false
 
-                // -----------------------------------------------------------
-                // Step A: Primary Parser (Первоначальный источник - ПРИОРИТЕТ)
-                // -----------------------------------------------------------
-                val query = "${track.artist} ${track.title}"
-                val primaryCandidates = runCatching {
-                    sourceCatalog.searchAll(query).filter { it.sourceId != "yandex_direct" }
-                }.getOrDefault(emptyList())
+                runCatching {
+                    // -----------------------------------------------------------
+                    // Step A: Primary Parser (Первоначальный источник - ПРИОРИТЕТ)
+                    // -----------------------------------------------------------
+                    val query = "${track.artist} ${track.title}".trim()
+                    val primaryCandidates = runCatching {
+                        sourceCatalog.searchAll(query).filter { it.sourceId != "yandex_direct" }
+                    }.getOrDefault(emptyList())
 
-                val bestPrimaryMatch = findBestMatch(track, primaryCandidates)
+                    val bestPrimaryMatch = findBestMatch(track, primaryCandidates)
 
-                if (bestPrimaryMatch != null) {
-                    try {
-                        _progress.value = _progress.value.copy(
-                            message = "[$currentNumber / $total] Скачивание из парсера (${bestPrimaryMatch.sourceId})...",
-                        )
-                        val blueprint = sourceCatalog.resolve(bestPrimaryMatch)
-                        // Preserve high-res Yandex cover if primary has none
-                        val finalBlueprint = if (blueprint.coverUrl.isNullOrBlank() && !track.coverUrl.isNullOrBlank()) {
-                            blueprint.copy(coverUrl = track.coverUrl)
-                        } else {
-                            blueprint
+                    if (bestPrimaryMatch != null) {
+                        try {
+                            _progress.value = _progress.value.copy(
+                                message = "[$currentNumber / $total] Скачивание из парсера (${bestPrimaryMatch.sourceId})...",
+                            )
+                            val blueprint = sourceCatalog.resolve(bestPrimaryMatch)
+                            // Preserve high-res Yandex cover if primary has none
+                            val finalBlueprint = if (blueprint.coverUrl.isNullOrBlank() && !track.coverUrl.isNullOrBlank()) {
+                                blueprint.copy(coverUrl = track.coverUrl)
+                            } else {
+                                blueprint
+                            }
+                            val imported = repository.importDownloadedTrack(finalBlueprint)
+                            targetPlaylist?.let { runCatching { repository.addTrackToPlaylist(imported.id, it.id) } }
+                            downloadedCount++
+                            wasDownloaded = true
+                        } catch (e: Throwable) {
+                            Log.w(TAG, "Primary parser download failed for $trackTitle: ${e.message}")
                         }
-                        val imported = repository.importDownloadedTrack(finalBlueprint)
-                        targetPlaylist?.let { repository.addTrackToPlaylist(imported.id, it.id) }
-                        downloadedCount++
-                        wasDownloaded = true
-                    } catch (e: Throwable) {
-                        Log.w(TAG, "Primary parser download failed for $trackTitle: ${e.message}")
                     }
-                }
 
-                // -----------------------------------------------------------
-                // Step B: Secondary / Fallback Source (Яндекс Музыка Direct)
-                // -----------------------------------------------------------
-                if (!wasDownloaded && isDirectSourceEnabled.value) {
-                    try {
-                        _progress.value = _progress.value.copy(
-                            message = "[$currentNumber / $total] Парсер пропустил. Загрузка через Яндекс Direct...",
-                        )
-                        val directUrl = client.resolveDirectDownloadUrl(currentToken, track.id).getOrThrow()
-                        val filename = "${track.artist} - ${track.title}.mp3".replace(Regex("[/\\\\:*?\"<>|]"), "_")
-                        val blueprint = DownloadBlueprint(
-                            title = track.title,
-                            artist = track.artist,
-                            url = directUrl,
-                            suggestedFilename = filename,
-                            coverUrl = track.coverUrl,
-                        )
-                        val imported = repository.importDownloadedTrack(blueprint)
-                        targetPlaylist?.let { repository.addTrackToPlaylist(imported.id, it.id) }
-                        downloadedCount++
-                        wasDownloaded = true
-                    } catch (e: Throwable) {
-                        Log.e(TAG, "Direct Yandex download failed for $trackTitle: ${e.message}")
+                    // -----------------------------------------------------------
+                    // Step B: Secondary / Fallback Source (Яндекс Музыка Direct)
+                    // -----------------------------------------------------------
+                    if (!wasDownloaded && (isDirectSourceEnabled.value || !currentToken.isNullOrBlank())) {
+                        try {
+                            _progress.value = _progress.value.copy(
+                                message = "[$currentNumber / $total] Загрузка через Яндекс Direct: $trackTitle...",
+                            )
+                            val directUrl = client.resolveDirectDownloadUrl(currentToken, track.id).getOrThrow()
+                            val filename = "${track.artist} - ${track.title}.mp3".replace(Regex("[/\\\\:*?\"<>|]"), "_")
+                            val blueprint = DownloadBlueprint(
+                                title = track.title,
+                                artist = track.artist,
+                                url = directUrl,
+                                suggestedFilename = filename,
+                                coverUrl = track.coverUrl,
+                            )
+                            val imported = repository.importDownloadedTrack(blueprint)
+                            targetPlaylist?.let { runCatching { repository.addTrackToPlaylist(imported.id, it.id) } }
+                            downloadedCount++
+                            wasDownloaded = true
+                        } catch (e: Throwable) {
+                            Log.e(TAG, "Direct Yandex download failed for $trackTitle: ${e.message}")
+                        }
                     }
+                }.onFailure { err ->
+                    Log.e(TAG, "Unhandled error processing track $currentNumber ($trackTitle): ${err.message}", err)
                 }
             }
 

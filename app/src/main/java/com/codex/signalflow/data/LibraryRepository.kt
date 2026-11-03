@@ -172,6 +172,12 @@ class LibraryRepository(
         )
     }
 
+    suspend fun deletePlaylist(playlistId: String): LibrarySnapshot = mutate { current ->
+        current.copy(
+            playlists = current.playlists.filterNot { it.id == playlistId },
+        )
+    }
+
     suspend fun deleteTrack(trackId: String): Boolean = withContext(Dispatchers.IO) {
         val track = snapshot.value.tracks.firstOrNull { it.id == trackId } ?: return@withContext false
         val deletedFromStorage = deletePersistedAudio(track)

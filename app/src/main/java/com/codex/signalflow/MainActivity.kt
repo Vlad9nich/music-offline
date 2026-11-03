@@ -99,6 +99,7 @@ class MainActivity : ComponentActivity() {
                     onPreviewRemoteTrack = viewModel::previewRemoteTrack,
                     onDownloadRemoteTrack = viewModel::downloadRemoteTrack,
                     onDeleteLocalTrack = viewModel::deleteLocalTrack,
+                    onDeletePlaylist = viewModel::deletePlaylist,
                     onDismissScreenshotImport = viewModel::dismissScreenshotImportSession,
                     onAddScreenshotImportMatch = viewModel::addScreenshotImportMatch,
                     onSetYandexToken = viewModel::setYandexToken,

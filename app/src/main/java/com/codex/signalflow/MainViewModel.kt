@@ -449,6 +449,18 @@ class MainViewModel(
     fun playPrevious() = playbackController.playPrevious()
     fun toggleShuffle() = playbackController.toggleShuffle()
     fun seekTo(positionMs: Long) = playbackController.seekTo(positionMs)
+
+    fun deletePlaylist(playlistId: String) {
+        viewModelScope.launch {
+            repository.deletePlaylist(playlistId)
+            if (selectedPlaylistId.value == playlistId) {
+                val fallback = repository.snapshot.value.playlists.firstOrNull { it.id != playlistId }?.id
+                selectedPlaylistId.value = fallback
+            }
+            snackbar.value = "Плейлист удален."
+        }
+    }
+
     fun deleteLocalTrack(trackId: String) {
         viewModelScope.launch {
             val deleted = repository.deleteTrack(trackId)

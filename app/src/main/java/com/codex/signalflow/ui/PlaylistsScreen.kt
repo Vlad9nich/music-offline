@@ -31,6 +31,7 @@ import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Clear
 import androidx.compose.material.icons.rounded.ContentCopy
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.OpenInBrowser
@@ -68,6 +69,7 @@ internal fun PlaylistsScreen(
     onCreatePlaylist: (String) -> Unit,
     onPlayPlaylist: () -> Unit,
     onShufflePlaylist: () -> Unit,
+    onDeletePlaylist: (String) -> Unit = {},
     onRemoveTrackFromPlaylist: (String) -> Unit,
     onPlayTrack: (String) -> Unit,
     onImportPlaylistScreenshots: () -> Unit,
@@ -487,6 +489,9 @@ internal fun PlaylistsScreen(
                             onSelectPlaylist(playlist.id)
                             onShufflePlaylist()
                         },
+                        onDelete = {
+                            onDeletePlaylist(playlist.id)
+                        },
                     )
                 }
             }
@@ -591,6 +596,28 @@ internal fun PlaylistsScreen(
                                 modifier = Modifier.size(18.dp),
                             )
                         }
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CutSmallShape)
+                                .background(Color(0xFF241014))
+                                .border(1.dp, Color(0xFF5A1E26), CutSmallShape)
+                                .tactileClickable {
+                                    val id = uiState.selectedPlaylistId
+                                    if (id != null) {
+                                        isDetailOpen = false
+                                        onDeletePlaylist(id)
+                                    }
+                                },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = "Удалить плейлист",
+                                tint = Color(0xFFFF5252),
+                                modifier = Modifier.size(17.dp),
+                            )
+                        }
                     }
                     Spacer(Modifier.height(10.dp))
                     CyberTextField(
@@ -653,6 +680,7 @@ private fun PlaylistCard(
     onClick: () -> Unit,
     onPlay: () -> Unit,
     onShuffle: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     Card(
         modifier = Modifier
@@ -764,6 +792,22 @@ private fun PlaylistCard(
                         contentDescription = "Пуск",
                         tint = Color.Black,
                         modifier = Modifier.size(18.dp),
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CutSmallShape)
+                        .background(Color(0xFF241014))
+                        .border(1.dp, Color(0xFF5A1E26), CutSmallShape)
+                        .tactileClickable(onClick = onDelete),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Delete,
+                        contentDescription = "Удалить плейлист",
+                        tint = Color(0xFFFF5252),
+                        modifier = Modifier.size(17.dp),
                     )
                 }
             }
